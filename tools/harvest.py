@@ -40,6 +40,7 @@ was Cloudflare not answering (no connection, a timeout, a 5xx or a 429); 1 for
 any other failure. Whatever worked is committed either way. Stdlib only, Python 3.8+.
 """
 import argparse
+import http.client
 import datetime
 import json
 import os
@@ -207,8 +208,9 @@ class Cloudflare:
                 body = e.read()
             raise ApiError('HTTP %d from %s: %s' % (e.code, path.split('?')[0], messages(body)),
                            unreachable=e.code >= 500 or e.code == 429)
-        except (urllib.error.URLError, OSError) as e:
-            raise ApiError('cannot reach %s: %s' % (self.api, getattr(e, 'reason', e)), unreachable=True)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+            # HTTPException covers an answer cut short (IncompleteRead, BadStatusLine).
+            raise ApiError('cannot reach %s: %r' % (self.api, getattr(e, 'reason', e)), unreachable=True)
         except ValueError:
             raise ApiError('%s did not answer JSON' % path.split('?')[0])
 
@@ -576,6 +578,8 @@ def main(argv=None, root=ROOT, today=None):
     if not domains:
         print('🛑 no folder has a harvest.conf')
         return 1
+    if a.db and len(domains) != 1:
+        p.error('--db takes exactly one domain: two sites in one file would share cf_http_daily rows')
 
     prefix = {'': ''}
 

@@ -335,6 +335,24 @@ class ExitCodes(Base):
         self.assertEqual(status, H.UNREACHABLE, out)
         self.assertIn('cannot reach', out)
 
+    def test_answer_cut_short_exits_75(self):
+        self.site('analytics=1\n')
+
+        def cut(*a, **k):
+            raise http.client.IncompleteRead(b'{"succ')
+
+        with mock.patch.object(H.urllib.request, 'urlopen', cut):
+            status, out = self.run_harvest()
+        self.assertEqual(status, H.UNREACHABLE, out)
+
+    def test_db_needs_exactly_one_domain(self):
+        self.site('analytics=1\n')
+        self.site('analytics=1\n', domain='other.test')
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_harvest('example.com', 'other.test', '--db', os.path.join(self.root, 'x.sqlite3'))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_harvest('--db', os.path.join(self.root, 'x.sqlite3'))  # both folders, by default
+
     def test_bad_token_exits_1(self):
         self.site('analytics=1\n')
         with mock.patch.dict(os.environ, {'HARVEST_TOKEN': 'wrong'}):
