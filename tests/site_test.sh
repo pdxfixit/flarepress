@@ -42,6 +42,18 @@ class H(http.server.SimpleHTTPRequestHandler):
         if self.path.split('?')[0] == '/sw.js' and not os.path.exists(flag):
             self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
+    def do_GET(self):
+        # FLAP holds a count: while it exists, version.js answers this commit's copy
+        # and an old one in turn, as Cloudflare's edge can while it updates.
+        flap = os.path.join(os.path.dirname(flag), 'FLAP')
+        if self.path.split('?')[0] == '/version.js' and os.path.exists(flap):
+            n = int(open(flap).read() or 0) + 1
+            open(flap, 'w').write(str(n))
+            if n % 2 == 0:
+                body = b"self.V = 'old';\n"
+                self.send_response(200); self.send_header('Content-Length', str(len(body))); self.end_headers()
+                self.wfile.write(body); return
+        super().do_GET()
 http.server.ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
 PY
 python3 "$T/serve.py" "$T/app/web" "$PORT" "$T/NOCACHE_OFF" & SERVER=$!
@@ -96,6 +108,11 @@ run verify --want nope && no "verify fails on the wrong version" || ok "verify f
 touch "$T/NOCACHE_OFF"
 run verify && no "verify fails without sw.js no-cache" || { says 'sw-cache' && ok "verify fails without sw.js no-cache" || no "verify fails without sw.js no-cache (wrong reason)"; }
 rm -f "$T/NOCACHE_OFF"
+# 8b. An edge that answers new and old copies in turn still passes: the check
+#     judges by what its wait saw (a second look once failed a good deploy, 2026-10-15).
+echo 0 > "$T/FLAP"; conf; sed -i.bak 's/^compare_wait=2$/compare_wait=6/' "$T/app/site/site.conf"
+run verify && says 'live version.js is this commit' && ok "verify passes while the edge flaps between copies" || { no "verify passes while the edge flaps between copies"; cat "$T/out"; }
+rm -f "$T/FLAP" "$T/app/site/site.conf.bak"; conf
 # 9. compare: a live file that differs from the checkout fails.
 mkdir -p "$T/other"; cp "$T/app/web/"* "$T/other/"; echo "self.V = 'other';" > "$T/other/version.js"; cp "$T/app/web/version.json" "$T/other/"
 run verify --web "$T/other" && no "verify fails when a compare file differs" || { says 'differs' && ok "verify fails when a compare file differs" || no "verify fails when a compare file differs (wrong reason)"; }

@@ -197,8 +197,11 @@ cmd_verify() {
   for f in $(conf compare); do
     [ -f "$web/$f" ] || { echo "❌ compare=$f, but $web/$f does not exist" >&2; failed="$failed $f"; continue; }
     t0=$SECONDS; n=$(( $(secs compare_wait 90) / 3 )); [ "$n" -ge 1 ] || n=1
-    for _ in $(seq 1 "$n"); do same_live "$f" "$web/$f" && break; sleep 3; done
-    if same_live "$f" "$web/$f"; then echo "✅ live $f is this commit's (after $((SECONDS - t0)) s)"
+    # Judge by what the wait saw: while the edge updates, one request can get the
+    # new file and the next the old one, so a second look could fail a good deploy.
+    seen=0
+    for _ in $(seq 1 "$n"); do if same_live "$f" "$web/$f"; then seen=1; break; fi; sleep 3; done
+    if [ "$seen" = 1 ]; then echo "✅ live $f is this commit's (after $((SECONDS - t0)) s)"
     else echo "❌ live $f differs from $web/$f" >&2; failed="$failed $f"; fi
   done
   probe "$URL/"; [ "$code" = 200 ] && echo "✅ 200 /" || { echo "❌ $code /" >&2; failed="$failed /"; }
