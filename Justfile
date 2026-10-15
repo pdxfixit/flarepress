@@ -144,10 +144,11 @@ rollback site *flags:
 
 # 🧪 The tools' tests, against a local server; nothing reaches Cloudflare
 test:
-    bash -n tools/site.sh && bash -n tools/wrangler.sh
+    bash -n tools/site.sh && bash -n tools/wrangler.sh && bash -n tools/release.sh
     bash tests/site_test.sh
     bash tests/new_test.sh
     bash tests/wrangler_test.sh
+    bash tests/release_test.sh
     python3 -m unittest discover -s tests -p 'test_*.py'
 
 # 🌐 Every site under $FLAREPRESS_SITES answers as its folder says (read-only GETs): just sites [domain ...]
@@ -157,3 +158,8 @@ sites *domains:
 # 📥 Copy each site's D1 telemetry and Cloudflare stats into its local SQLite archive (just harvest [domain ...] [--days N] [--quiet])
 harvest *domains:
     python3 tools/harvest.py {{domains}}
+
+# 🚀 Release: GitHub runs the tests, tags main as the next v1.M.P and moves v1 (agents start it through the API)
+release:
+    gh workflow run release.yml --repo pdxfixit/flarepress --ref main
+    @echo "Started: https://github.com/pdxfixit/flarepress/actions/workflows/release.yml"

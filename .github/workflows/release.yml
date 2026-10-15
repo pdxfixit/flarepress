@@ -1,0 +1,30 @@
+# Release flarepress: the tests, then tools/release.sh --push (tag main as the
+# next v1.M.P and move v1 to it). Started by hand or by automation: Actions →
+# release → Run workflow, `just release`, or the API (workflow_dispatch). The
+# repo's own token pushes the tags; nobody's machine needs tag rights.
+name: release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0  # every tag, and the commits since the last release
+      - name: Install just (pinned release)
+        run: curl -sSfL https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz | sudo tar xz -C /usr/local/bin just
+      - name: just test
+        run: just test
+      - name: Tag and move v1
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          tools/release.sh --push

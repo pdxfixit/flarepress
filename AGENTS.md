@@ -41,6 +41,7 @@ a Mac the app's recipes export them from its config file.
   (aliases 301 to their target, move pages 200 at / and 301 elsewhere, sites 200, app sites
   serve `/version.json`). Read-only GETs.
 - `just harvest [domain…]`: telemetry (below).
+- `just release`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it).
 - `just test`: the tools' tests against a local server. Nothing reaches Cloudflare. GitHub
   runs it on every push (`.github/workflows/test.yml`).
 
@@ -97,15 +98,11 @@ jobs:
 Run the app's own tests before the action and its live checks after it. **Releases are
 rolling tags** (the owner, 2026-10-15): app repos use `@v1` (and check out `ref: v1`), so
 moving `v1` releases to every site's next deploy, with no commit in the app repos. Moving
-the tag is the release step, and the owner's (agents' git proxies refuse tag pushes), from
-a clone that pushes over SSH. Tags are annotated (the owner's git wants a message), and
-`vN` points at the commit, not at the `vN.M.P` tag:
-
-    git tag -a v1.0.1 -m "flarepress 1.0.1" <commit>
-    git tag -f -a v1 -m "flarepress v1" 'v1.0.1^{}'
-    git push origin v1.0.1 && git push -f origin v1
-
-A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
+the tag is the release step. **Release with the release workflow** (`.github/workflows/release.yml`):
+Actions → release → Run workflow, `just release`, or the GitHub API (an agent may start it). It
+runs `just test`, then `tools/release.sh --push`: tags `main` as the next `v1.M.P` (the commits
+since the last release in its message) and moves `v1` to it, annotated and on the commit, with
+the repo's own token. `main` already released: it says so and tags nothing. A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
 
 ## Telemetry harvest
 

@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOMAIN = re.compile(r'\b(?:[a-z0-9-]+\.)+(?:com|net|org|app|io|dev|co|us)\b', re.I)
 ALLOWED = {
     'example.com', 'github.com', 'api.github.com', 'api.cloudflare.com', 'dash.cloudflare.com',
-    'developers.cloudflare.com', 'cloudflare.com', 'registry.npmjs.org',
+    'developers.cloudflare.com', 'cloudflare.com', 'registry.npmjs.org', 'users.noreply.github.com',
     # placeholders in tests/test_sites_check.py and tools/sites_check.py
     'old.com', 'new.com', 'app.new.com', 'www.old.com', 'was.com', 'a.com', 'b.com', 'out.app',
     'elsewhere.com', 'now.app',
