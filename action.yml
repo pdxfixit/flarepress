@@ -1,0 +1,44 @@
+# Deploy an app site from its own repo's GitHub Actions run:
+#
+#   - uses: actions/checkout@v7.0.1
+#     with: { fetch-depth: 0 }          # git describe needs the tags
+#   - uses: pdxfixit/flarepress@v1
+#     with:
+#       site: site                      # the site folder in this repo
+#     env:
+#       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+#       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+#       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}   # each ${NAME} in wrangler.toml
+#
+# Steps: check (the run is for main, committed paths clean, files present),
+# gate (refuses a first publish unless FIRST_PUBLISH=1), stamp version.json,
+# wrangler deploy, then verify the live site serves this commit.
+name: flarepress deploy
+description: Check, stamp, deploy and verify one app site folder on Cloudflare Workers.
+inputs:
+  site:
+    description: Path to the site folder (wrangler.toml and site.conf), from the repo root.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Check
+      shell: bash
+      env: { SITE: "${{ github.workspace }}/${{ inputs.site }}" }
+      run: '"$GITHUB_ACTION_PATH/tools/site.sh" "$SITE" check'
+    - name: Gate
+      shell: bash
+      env: { SITE: "${{ github.workspace }}/${{ inputs.site }}" }
+      run: '"$GITHUB_ACTION_PATH/tools/site.sh" "$SITE" gate'
+    - name: Stamp
+      shell: bash
+      env: { SITE: "${{ github.workspace }}/${{ inputs.site }}" }
+      run: '"$GITHUB_ACTION_PATH/tools/site.sh" "$SITE" stamp'
+    - name: Deploy
+      shell: bash
+      env: { SITE: "${{ github.workspace }}/${{ inputs.site }}" }
+      run: '"$GITHUB_ACTION_PATH/tools/wrangler.sh" "$SITE" deploy'
+    - name: Verify
+      shell: bash
+      env: { SITE: "${{ github.workspace }}/${{ inputs.site }}" }
+      run: '"$GITHUB_ACTION_PATH/tools/site.sh" "$SITE" verify'
