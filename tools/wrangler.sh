@@ -4,8 +4,9 @@
 #   tools/wrangler.sh ~/src/app/site deploy --dry-run
 #   tools/wrangler.sh ~/src/app/site d1 execute my-db --remote --command "SELECT 1"
 #
-# <site> is a path to a folder with a wrangler.toml, or a name under
-# $FLAREPRESS_SITES (default ~/.config/flarepress/sites).
+# <site> is a path to a folder with a wrangler.toml (a folder by that name
+# where you run it counts as a path), or a name under $FLAREPRESS_SITES
+# (default ~/.config/flarepress/sites).
 #
 # Auth: CLOUDFLARE_API_TOKEN when it is set (GitHub Actions passes the repo's
 # secret), else the macOS Keychain item named by $CLOUDFLARE_KEYCHAIN (default
@@ -23,7 +24,9 @@ die() { echo "🛑 $*" >&2; exit 1; }
 [ $# -ge 2 ] || die "usage: wrangler.sh <site> <wrangler args…>"
 SITE=$1; shift
 SITES="${FLAREPRESS_SITES:-$HOME/.config/flarepress/sites}"
-case "$SITE" in */*|.|..) DIR=$SITE ;; *) DIR="$SITES/$SITE" ;; esac
+# A folder here wins over a name: `site` in an app repo means ./site.
+if [ -f "$SITE/wrangler.toml" ]; then DIR=$SITE
+else case "$SITE" in */*|.|..) DIR=$SITE ;; *) DIR="$SITES/$SITE" ;; esac; fi
 [ -f "$DIR/wrangler.toml" ] || die "no $DIR/wrangler.toml"
 cd "$DIR"
 

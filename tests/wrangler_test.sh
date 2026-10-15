@@ -34,4 +34,7 @@ printf 'name = "plain"\n' > "$T/site/wrangler.toml"
 run "$SH" "$ROOT/tools/wrangler.sh" "$T/site" whoami
 grep -q '^args: whoami$' "$T/out" && ok "a plain wrangler.toml is passed through as it is" || { no "a plain wrangler.toml passes through"; cat "$T/out"; }
 
+# A bare name that is a folder where you run it is that folder (`site` in an app repo).
+run "$SH" "$ROOT/tools/wrangler.sh" site whoami
+grep -q '^args: whoami$' "$T/out" && ok "a bare folder name here is a path" || { no "a bare folder name here is a path"; cat "$T/out"; }
 [ "$fails" = 0 ] && echo "🎉 wrangler.sh: all passed" || { echo "💥 wrangler.sh: $fails failed"; exit 1; }

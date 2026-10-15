@@ -10,8 +10,9 @@
 #   tools/site.sh <site> live                    what is live now (any site, read-only)
 #   tools/site.sh <site> rollback [--to C] [--yes]       dry unless --yes
 #
-# <site> is a path to a site folder (one with a wrangler.toml), or a name under
-# $FLAREPRESS_SITES (default ~/.config/flarepress/sites). The assets folder is
+# <site> is a path to a site folder (one with a wrangler.toml; a folder by that
+# name where you run it counts as a path), or a name under $FLAREPRESS_SITES
+# (default ~/.config/flarepress/sites). The assets folder is
 # wrangler.toml's [assets] directory, relative to the site folder.
 #
 # Config: <site>/site.conf, key=value lines, read and never run as shell:
@@ -35,10 +36,12 @@ die() { echo "🛑 $*" >&2; exit 1; }
 [ $# -ge 2 ] || die "usage: site.sh <site> check|gate|stamp|verify|live|rollback [flags]"
 DOMAIN=$1 SUB=$2; shift 2
 SITES="${FLAREPRESS_SITES:-$HOME/.config/flarepress/sites}"
-case "$DOMAIN" in
+# A folder here wins over a name: `site` in an app repo means ./site.
+if [ -f "$DOMAIN/wrangler.toml" ]; then DIR=$(cd "$DOMAIN" && pwd)
+else case "$DOMAIN" in
   */*|.|..) DIR=$(cd "$DOMAIN" 2>/dev/null && pwd) || die "no site folder $DOMAIN" ;;
   *) DIR="$SITES/$DOMAIN" ;;
-esac
+esac; fi
 [ -f "$DIR/wrangler.toml" ] || die "no $DIR/wrangler.toml"
 
 KEYS=" url committed pwa compare compare_wait version_wait rollback "
