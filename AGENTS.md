@@ -11,7 +11,7 @@ A **site folder** is a folder with a `wrangler.toml`. Two kinds:
 
 | Kind | Where | Deployed by |
 |---|---|---|
-| **App site**: an app with its own repo | a folder in that repo (`site/`), with `site.conf` and maybe `harvest.conf` | the repo's GitHub workflow, on every push to `main` (`uses: pdxfixit/flarepress@<commit>`); the owner's Mac as a fallback |
+| **App site**: an app with its own repo | a folder in that repo (`site/`), with `site.conf` and maybe `harvest.conf` | the repo's GitHub workflow, on every push to `main` (`uses: pdxfixit/flarepress@v1`); the owner's Mac as a fallback |
 | **Plain site**: an alias, a move page, a static page | `~/.config/flarepress/sites/<domain>/` on the owner's Mac (`$FLAREPRESS_SITES`) | the owner, from the Mac: `just push <domain>` |
 
 Every recipe and tool takes `<site>` as a **path** to a site folder, or a **name** under
@@ -87,17 +87,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with: { fetch-depth: 0 }
-      - uses: pdxfixit/flarepress@<full commit id>
+      - uses: pdxfixit/flarepress@v1
         with: { site: site }
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
-Run the app's own tests before the action and its live checks after it. **App repos pin a
-full commit id**, never a branch or a movable tag: a later push here cannot change what an
-app's deploy runs until that app's repo moves its pin (and its own tests run with it). To
-release a change, push it here, then move each app's pin in a commit there.
+Run the app's own tests before the action and its live checks after it. **Releases are
+rolling tags** (the owner, 2026-10-15): app repos use `@v1` (and check out `ref: v1`), so
+moving `v1` releases to every site's next deploy, with no commit in the app repos. Moving
+the tag is the release step, and the owner's: tag `vN.M.P` on the commit, then move `vN`
+to it (`git tag -f v1 <commit> && git push -f origin v1`). A change that breaks a caller
+is a new major tag, `v2`, which each app moves to on purpose.
 
 ## Telemetry harvest
 
