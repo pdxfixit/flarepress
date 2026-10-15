@@ -2,7 +2,7 @@
 #
 #   - uses: actions/checkout@v7.0.1
 #     with: { fetch-depth: 0 }          # git describe needs the tags
-#   - uses: pdxfixit/flarepress@v1
+#   - uses: pdxfixit/flarepress@<full commit id>   # pinned: a push here cannot change it
 #     with:
 #       site: site                      # the site folder in this repo
 #     env:
