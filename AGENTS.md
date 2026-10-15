@@ -97,9 +97,15 @@ jobs:
 Run the app's own tests before the action and its live checks after it. **Releases are
 rolling tags** (the owner, 2026-10-15): app repos use `@v1` (and check out `ref: v1`), so
 moving `v1` releases to every site's next deploy, with no commit in the app repos. Moving
-the tag is the release step, and the owner's: tag `vN.M.P` on the commit, then move `vN`
-to it (`git tag -f v1 <commit> && git push -f origin v1`). A change that breaks a caller
-is a new major tag, `v2`, which each app moves to on purpose.
+the tag is the release step, and the owner's (agents' git proxies refuse tag pushes), from
+a clone that pushes over SSH. Tags are annotated (the owner's git wants a message), and
+`vN` points at the commit, not at the `vN.M.P` tag:
+
+    git tag -a v1.0.1 -m "flarepress 1.0.1" <commit>
+    git tag -f -a v1 -m "flarepress v1" 'v1.0.1^{}'
+    git push origin v1.0.1 && git push -f origin v1
+
+A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
 
 ## Telemetry harvest
 
