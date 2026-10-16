@@ -37,6 +37,15 @@ class AssetsDir(unittest.TestCase):
     def test_public_when_none(self):
         self.check('name = "x"\nmain = "index.js"\n', 'site/public')
 
+    def test_inline_table(self):
+        self.check('name = "x"\nassets = { directory = "./dist", binding = "ASSETS" }\n\n[vars]\nA = "1"\n', 'site/dist')
+
+    def test_literal_string(self):
+        self.check("[assets]\ndirectory = './dist'\n", 'site/dist')
+
+    def test_inline_table_under_another_table_is_not_assets(self):
+        self.check('[env.staging]\nassets = { directory = "./staging" }\n', 'site/public')
+
     def test_only_the_assets_table(self):
         self.check('[build]\ndirectory = "nope"\n\n[assets]\ndirectory = "./out"\n', 'site/out')
 
