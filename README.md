@@ -84,6 +84,7 @@ just alias old.example.com example.com   # a Worker that 301s every path to the 
 just plan example.com             # dry run: nothing is sent
 just push example.com             # deploy for real
 just live example.com             # status, cache headers, and for an app site its version
+just link ~/src/app/site          # register an app's site folder, so `just sites` and `just harvest` see it
 just sites                        # every site answers as its folder says
 ```
 

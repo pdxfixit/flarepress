@@ -105,6 +105,44 @@ alias domain target:
     EOF
     echo "Scaffolded $d: redirects (301) to $target. Then: just plan $domain"
 
+# Register app sites: link each site folder into $FLAREPRESS_SITES, named for its first route: just link ~/src/app/site
+[positional-arguments]
+link *paths:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    [ "$#" -gt 0 ] || { echo "🛑 usage: just link <site folder>..." >&2; exit 1; }
+    mkdir -p "{{sites}}"
+    bad=0
+    for p in "$@"; do
+      dir=$(cd "{{here}}" && cd "$p" 2>/dev/null && pwd -P) || { echo "🛑 $p: not a folder" >&2; bad=1; continue; }
+      [ -f "$dir/wrangler.toml" ] || { echo "🛑 $p: no wrangler.toml, so not a site folder" >&2; bad=1; continue; }
+      name=$(sed -n 's/^[^#]*pattern[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$dir/wrangler.toml" | head -1 | tr '[:upper:]' '[:lower:]')
+      printf '%s\n' "$name" | grep -Eq '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]*[a-z]$' \
+        || { echo "🛑 $p: its wrangler.toml has no route with a domain name to call the link" >&2; bad=1; continue; }
+      l="{{sites}}/$name"
+      if [ -L "$l" ]; then
+        if [ "$(cd "$l" 2>/dev/null && pwd -P)" = "$dir" ]; then echo "✅ $name already links to $dir"; continue; fi
+        was=$(readlink "$l"); ln -sfn "$dir" "$l"; echo "🔁 $name now links to $dir (was $was)"
+      elif [ -e "$l" ]; then
+        echo "🛑 $l is a real folder, not a link; nothing changed" >&2; bad=1
+      else
+        ln -s "$dir" "$l"; echo "🔗 $name -> $dir"
+      fi
+    done
+    exit $bad
+
+# Remove a site's link from $FLAREPRESS_SITES; only a link, never a real folder: just unlink example.com
+[positional-arguments]
+unlink domain:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    printf '%s\n' "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]*[a-z]$' \
+      || { echo "🛑 '$1' is not a domain name (example.com)" >&2; exit 1; }
+    l="{{sites}}/$1"
+    [ -L "$l" ] || { echo "🛑 $l is not a link (a real folder is never removed); nothing changed" >&2; exit 1; }
+    rm "$l"
+    echo "Removed the link $1"
+
 # A site's D1 or KV, with the same auth as push; arguments reach wrangler whole:
 #   just d1 ~/src/app/site execute my-db --remote --command "SELECT count(*) FROM t"
 #   just kv my.site key list --binding LOGS --remote
@@ -159,6 +197,7 @@ test:
     bash -n tools/site.sh && bash -n tools/wrangler.sh && bash -n tools/release.sh
     bash tests/site_test.sh
     bash tests/new_test.sh
+    bash tests/link_test.sh
     bash tests/wrangler_test.sh
     bash tests/release_test.sh
     python3 -m unittest discover -s tests -p 'test_*.py'

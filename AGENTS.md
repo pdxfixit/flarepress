@@ -16,7 +16,7 @@ A **site folder** is a folder with a `wrangler.toml`. Two kinds:
 
 Every recipe and tool takes `<site>` as a **path** to a site folder, or a **name** under
 `$FLAREPRESS_SITES`. A name there may be a link to an app's `site/` folder, so `just
-harvest` and `just sites` see every site.
+harvest` and `just sites` see every site: `just link <path to the app's site/>` makes it.
 
 An app's `wrangler.toml` points at its files relatively (`[assets] directory = "../web"`,
 `main = "../worker/index.js"`). Paths resolve from the folder's real location, as wrangler
@@ -35,6 +35,11 @@ a Mac the app's recipes export them from its config file.
 - `just new <domain>` / `just alias <domain> <target>`: scaffold a plain site under `$FLAREPRESS_SITES`
   (`new`: `index.html`, `_headers` with no-cache, nosniff, a referrer policy and a strict CSP,
   `.assetsignore`; `alias`: a Worker that 301s every path to `<target>`).
+- `just link <site folder>…` / `just unlink <domain>`: register an app's `site/` folder under
+  `$FLAREPRESS_SITES`, as a link named for the site's first route (a relative path is read from where you run
+  just). Safe to run again: a link already right is left, a link to somewhere else is re-pointed, and a real
+  folder is never touched or removed. A path that is not a site folder (no `wrangler.toml`, or no route with a
+  domain name) is refused, the others are still linked, and the exit is 1.
 - `just d1 <site> …` / `just kv <site> …` / `just whoami <site>`: wrangler with the same auth.
 - `just check|gate|stamp|verify|live|rollback <site>`: the app-site steps (below).
 - `just sites [domain…]`: every site under `$FLAREPRESS_SITES` answers as its folder says
