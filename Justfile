@@ -32,24 +32,29 @@ push site *flags:
     @cd "{{here}}" && "{{tools}}/wrangler.sh" "$1" deploy "${@:2}"
 
 # Scaffold a new site folder under $FLAREPRESS_SITES: just new example.com
+[positional-arguments]
 new domain:
     #!/usr/bin/env bash
     set -euo pipefail
-    d="{{sites}}/{{domain}}"
+    domain=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    printf '%s\n' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]*[a-z]$' \
+      || { echo "🛑 '$1' is not a domain name (example.com, not https://example.com/)" >&2; exit 1; }
+    d="{{sites}}/$domain"
+    [ ! -e "$d" ] || { echo "🛑 $d already exists; nothing changed" >&2; exit 1; }
     mkdir -p "$d/public"
     cat > "$d/wrangler.toml" <<EOF
-    name = "$(echo {{domain}} | tr '.' '-')"
+    name = "$(echo "$domain" | tr '.' '-')"
     compatibility_date = "$(date +%Y-%m-%d)"
 
     routes = [
-      { pattern = "{{domain}}", custom_domain = true },
-      { pattern = "www.{{domain}}", custom_domain = true }
+      { pattern = "$domain", custom_domain = true },
+      { pattern = "www.$domain", custom_domain = true }
     ]
 
     [assets]
     directory = "./public"
     EOF
-    echo "<!DOCTYPE html><html><head><title>{{domain}}</title></head><body></body></html>" > "$d/public/index.html"
+    echo "<!DOCTYPE html><html><head><title>$domain</title></head><body></body></html>" > "$d/public/index.html"
     # Response headers (Workers Static Assets reads _headers; neither file is served).
     cat > "$d/public/_headers" <<'EOF'
     # Response headers for Cloudflare Workers Static Assets (this file is not served).
@@ -64,34 +69,41 @@ new domain:
       Content-Security-Policy: default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
     EOF
     printf '.DS_Store\n.assetsignore\n' > "$d/public/.assetsignore"
-    echo "Scaffolded $d (index.html, _headers, .assetsignore). Edit public/index.html, then: just plan {{domain}}"
+    echo "Scaffolded $d (index.html, _headers, .assetsignore). Edit public/index.html, then: just plan $domain"
 
 # Scaffold a redirect-only site under $FLAREPRESS_SITES (301s everything to target): just alias old.com new.com
+[positional-arguments]
 alias domain target:
     #!/usr/bin/env bash
     set -euo pipefail
-    d="{{sites}}/{{domain}}"
+    domain=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]'); target=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+    for n in "$domain" "$target"; do
+      printf '%s\n' "$n" | grep -Eq '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]*[a-z]$' \
+        || { echo "🛑 '$n' is not a domain name (example.com, not https://example.com/)" >&2; exit 1; }
+    done
+    d="{{sites}}/$domain"
+    [ ! -e "$d" ] || { echo "🛑 $d already exists; nothing changed" >&2; exit 1; }
     mkdir -p "$d"
     cat > "$d/index.js" <<EOF
     export default {
       async fetch(request) {
         const url = new URL(request.url);
-        const target = new URL(url.pathname + url.search, "https://{{target}}");
+        const target = new URL(url.pathname + url.search, "https://$target");
         return Response.redirect(target.toString(), 301);
       }
     };
     EOF
     cat > "$d/wrangler.toml" <<EOF
-    name = "$(echo {{domain}} | tr '.' '-')"
+    name = "$(echo "$domain" | tr '.' '-')"
     compatibility_date = "$(date +%Y-%m-%d)"
     main = "index.js"
 
     routes = [
-      { pattern = "{{domain}}", custom_domain = true },
-      { pattern = "www.{{domain}}", custom_domain = true }
+      { pattern = "$domain", custom_domain = true },
+      { pattern = "www.$domain", custom_domain = true }
     ]
     EOF
-    echo "Scaffolded $d: redirects (301) to {{target}}. Then: just plan {{domain}}"
+    echo "Scaffolded $d: redirects (301) to $target. Then: just plan $domain"
 
 # A site's D1 or KV, with the same auth as push; arguments reach wrangler whole:
 #   just d1 ~/src/app/site execute my-db --remote --command "SELECT count(*) FROM t"
