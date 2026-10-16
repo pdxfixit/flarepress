@@ -1,10 +1,103 @@
 # flarepress
 
-Deploy static sites and small Workers to Cloudflare Workers, one site folder each.
+Deploy static sites and small Workers to Cloudflare Workers (Static Assets), one site folder each,
+and check afterwards that the live site is the commit you meant to ship.
 
-- **A GitHub action** for app repos: check, stamp `version.json`, `wrangler deploy`, verify the live site serves the commit.
-- **`just` recipes** for deploying and checking any site folder from a Mac.
-- **IDs stay out of public repos:** write `${NAME}` in `wrangler.toml`; it is filled from the environment at deploy time.
-- **Telemetry harvest:** copy a site's D1 tables and Cloudflare analytics into a local SQLite archive.
+- **A GitHub action** for app repos: check the run is for `main` and the files are committed,
+  stamp `version.json`, `wrangler deploy`, then verify the live site serves that version.
+- **`just` recipes** to scaffold, deploy and check any site folder from your own machine.
+- **IDs stay out of public repos:** write `${NAME}` in `wrangler.toml`; it is filled from the
+  environment at deploy time, and a missing value stops the deploy.
+- **Telemetry harvest:** copy a site's D1 tables and Cloudflare's daily analytics into a local
+  SQLite archive, read-only against Cloudflare.
 
-Bash and stdlib Python, no packages. See [AGENTS.md](AGENTS.md) for how it fits together, and run `just test` (needs `just`, `python3`, `curl`, `git`).
+Bash and stdlib Python, no packages to install. Wrangler runs through `npx`, pinned to one version.
+
+## What it assumes
+
+flarepress is opinionated. Read this before you adopt it.
+
+- **The live site is always a commit on `main`.** `check` refuses any other branch, a dirty
+  tree and an unpushed commit. Another default branch name is not supported.
+- **Config is `wrangler.toml`.** `wrangler.json` and `wrangler.jsonc` are not read.
+- **Bash 3.2 and Python 3.8 or newer**, so the tools run on a stock Mac and on GitHub's runners.
+  The macOS Keychain is optional: every token can come from the environment instead.
+- **Releases are rolling.** `@v1` moves to each new `v1.M.P` release. Pin a full commit SHA if
+  you want to choose when you take changes.
+
+## Deploy an app from its own repo
+
+Put a site folder in the repo (here `site/`) with a `wrangler.toml` and a `site.conf`:
+
+```toml
+# site/wrangler.toml
+name = "example-app"
+compatibility_date = "2026-10-01"
+routes = [ { pattern = "app.example.com", custom_domain = true } ]
+
+[assets]
+directory = "../web"
+```
+
+```ini
+# site/site.conf (key=value, never run as shell; an unknown key or value is an error)
+committed=web
+```
+
+Add `version.json` to the app's `.gitignore` (the stamp is written there at deploy time), then
+the workflow:
+
+```yaml
+# .github/workflows/deploy.yml
+on: { push: { branches: [main] } }
+permissions: { contents: read }
+concurrency: { group: deploy, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with: { fetch-depth: 0 }   # git describe needs the tags
+      - uses: pdxfixit/flarepress@v1
+        with: { site: site }
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+The first deploy creates the Custom Domain, so the action refuses it until you set
+`FIRST_PUBLISH: 1` in `env` once. A deploy that went through but fails `verify` exits non-zero
+and names each failed check.
+
+**The token:** one per app repo, limited to that zone: Zone → Workers Routes: Edit, DNS: Edit,
+Zone: Read, plus Account → Workers Scripts: Edit (Cloudflare cannot narrow that to one Worker),
+and D1: Read only for a site with a D1 binding.
+
+## Deploy from your own machine
+
+```sh
+just new example.com              # a static site under ~/.config/flarepress/sites/
+just alias old.example.com example.com   # a Worker that 301s every path to the target
+just plan example.com             # dry run: nothing is sent
+just push example.com             # deploy for real
+just live example.com             # status, cache headers, and for an app site its version
+just sites                        # every site answers as its folder says
+```
+
+A `<site>` is a path to a folder with a `wrangler.toml`, or a name under `$FLAREPRESS_SITES`
+(default `~/.config/flarepress/sites`). Auth is `CLOUDFLARE_API_TOKEN`, else the macOS Keychain
+item `cloudflare-www-deploy`, else wrangler's own login.
+
+## Reference
+
+[AGENTS.md](AGENTS.md) is the full reference: every recipe, every `site.conf` and `harvest.conf`
+key, rollback, the telemetry harvest and its token, and the rules for working on this repo.
+
+## Development
+
+`just test` runs every test against local servers and throwaway repos. Nothing reaches
+Cloudflare. It needs `just`, `python3`, `curl` and `git`. CI runs it on Linux and on macOS
+(`/bin/bash` 3.2, the system `python3`), with shellcheck. Every change ships with a test that
+fails without it.
+
+Security issues: see [SECURITY.md](SECURITY.md).

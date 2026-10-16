@@ -41,9 +41,11 @@ a Mac the app's recipes export them from its config file.
   (aliases 301 to their target, move pages 200 at / and 301 elsewhere, sites 200, app sites
   serve `/version.json`). Read-only GETs.
 - `just harvest [domain…]`: telemetry (below).
-- `just release`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it).
+- `just release [minor]`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it;
+  `minor` for something new a caller can use, the default `patch` for fixes).
 - `just test`: the tools' tests against a local server. Nothing reaches Cloudflare. GitHub
-  runs it on every push (`.github/workflows/test.yml`).
+  runs it on every branch push and pull request, on Linux and on macOS (`/bin/bash` 3.2, the
+  system `python3`), with shellcheck (`.github/workflows/test.yml`).
 
 ## Auth
 
@@ -72,7 +74,8 @@ check, gate, stamp, deploy and verify in that order.
 | `live` | status, cache headers, the live version and whether it is main's | no |
 | `rollback [--to C] [--yes]` | dry by default; `rollback=redeploy` deploys a throwaway checkout of an old commit from its own site folder (a commit from before the site folder was in the repo cannot be redeployed); `rollback=revert` only prints the revert steps | only with `--yes` |
 
-`site.conf` is `key=value`, read and never run as shell; an unknown key is an error:
+`site.conf` is `key=value` (no spaces around `=`), read and never run as shell; an unknown key
+or a value it does not take (`pwa` 0 or 1, `rollback` redeploy or revert, waits in whole seconds) is an error:
 `url`, `committed` (app paths that ship; default the assets folder), `pwa`, `compare`,
 `compare_wait`, `version_wait`, `rollback`. `tools/site.sh` names each in its header.
 
@@ -99,8 +102,9 @@ Run the app's own tests before the action and its live checks after it. **Releas
 rolling tags** (the owner, 2026-10-15): app repos use `@v1` (and check out `ref: v1`), so
 moving `v1` releases to every site's next deploy, with no commit in the app repos. Moving
 the tag is the release step. **Release with the release workflow** (`.github/workflows/release.yml`):
-Actions → release → Run workflow, `just release`, or the GitHub API (an agent may start it). It
-runs `just test`, then `tools/release.sh --push`: tags `main` as the next `v1.M.P` (the commits
+Actions → release → Run workflow, `just release [minor]`, or the GitHub API (an agent may start it). It
+runs the tests on Linux and macOS without write access, then, in a job that can write and runs no
+tests, `tools/release.sh --push`: tags `main` as the next `v1.M.P` (`bump`: patch, or minor; the commits
 since the last release in its message) and moves `v1` to it, annotated and on the commit, with
 the repo's own token. `main` already released: it says so and tags nothing. A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
 
@@ -127,7 +131,7 @@ identifier names, as the runner requires.
 | `db` | the archive (`~` expands) | `~/.local/state/<domain>/telemetry.sqlite3` |
 | `keychain` | Keychain service holding the read-only token (`HARVEST_TOKEN` overrides) | `cloudflare-analytics-read` |
 | `account` | account id | from the zone lookup |
-| `zone` | zone name | the first route in `wrangler.toml`, cut to its last two labels |
+| `zone` | zone name | the first route's host in `wrangler.toml`, or its nearest parent the token can see (`app.example.com`, then `example.com`) |
 | `analytics` | `1` copies Cloudflare's daily stats into `cf_http_daily`, `cf_http_country`, `cf_http_status`, `cf_http_browser` and, for a site with a Worker, `cf_workers_daily` | `1` |
 | `table` | one D1 table a line: `<name> append <idcol>` (new rows by id), or `<name> upsert <pk,..> [min=c,..] [max=c,..] [cols=a,b,..] [as=local]` (every row; `cols=` keeps secrets out) | none |
 
