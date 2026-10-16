@@ -162,10 +162,16 @@ test:
     bash tests/wrangler_test.sh
     bash tests/release_test.sh
     python3 -m unittest discover -s tests -p 'test_*.py'
+    if command -v node >/dev/null; then node --test tests/*.test.mjs; elif [ -n "${CI:-}" ]; then echo "🛑 node is needed for the events tests" >&2; exit 1; else echo "⚠️  node not found: the events JavaScript tests did not run"; fi
 
 # 🌐 Every site under $FLAREPRESS_SITES answers as its folder says (read-only GETs): just sites [domain ...]
 sites *domains:
     python3 tools/sites_check.py {{domains}}
+
+# 📦 Copy the telemetry events files into an app, or --check its copies: just events-vendor --client web --worker worker [--check]
+[positional-arguments]
+events-vendor *args:
+    @cd "{{here}}" && python3 "{{tools}}/events_vendor.py" "$@"
 
 # 📥 Copy each site's D1 telemetry and Cloudflare stats into its local SQLite archive (just harvest [domain ...] [--days N] [--quiet])
 harvest *domains:

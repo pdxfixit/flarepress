@@ -19,6 +19,8 @@ ALLOWED = {
     # placeholders in tests/test_sites_check.py and tools/sites_check.py
     'old.com', 'new.com', 'app.new.com', 'www.old.com', 'was.com', 'a.com', 'b.com', 'out.app',
     'elsewhere.com', 'now.app',
+    # public endpoints in tools/events_job.py and its tests: R2's S3 API, and AWS's published SigV4 examples
+    'r2.cloudflarestorage.com', 's3.amazonaws.com', 'examplebucket.s3.amazonaws.com',
 }
 
 

@@ -10,6 +10,8 @@ and check afterwards that the live site is the commit you meant to ship.
   environment at deploy time, and a missing value stops the deploy.
 - **Telemetry harvest:** copy a site's D1 tables and Cloudflare's daily analytics into a local
   SQLite archive, read-only against Cloudflare.
+- **Telemetry events:** one wire format for apps' usage events: a browser client, a Worker route that writes
+  batches to R2, and the telemetry runner's job that checks and stores them. Apps vendor the files.
 
 Bash and stdlib Python, no packages to install. Wrangler runs through `npx`, pinned to one version.
 
@@ -92,12 +94,13 @@ item `cloudflare-www-deploy`, else wrangler's own login.
 ## Reference
 
 [AGENTS.md](AGENTS.md) is the full reference: every recipe, every `site.conf` and `harvest.conf`
-key, rollback, the telemetry harvest and its token, and the rules for working on this repo.
+key, rollback, the telemetry harvest and its token, telemetry events, and the rules for working on this repo.
 
 ## Development
 
 `just test` runs every test against local servers and throwaway repos. Nothing reaches
-Cloudflare. It needs `just`, `python3`, `curl` and `git`. CI runs it on Linux and on macOS
+Cloudflare. It needs `just`, `python3`, `curl`, `git` and `node` (for the events tests; skipped with a warning
+outside CI when it is missing). CI runs it on Linux and on macOS
 (`/bin/bash` 3.2, the system `python3`), with shellcheck. Every change ships with a test that
 fails without it.
 

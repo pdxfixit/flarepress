@@ -41,6 +41,8 @@ a Mac the app's recipes export them from its config file.
   (aliases 301 to their target, move pages 200 at / and 301 elsewhere, sites 200, app sites
   serve `/version.json`). Read-only GETs.
 - `just harvest [domain…]`: telemetry (below).
+- `just events-vendor --client DIR --worker DIR | --standalone DIR [--check]`: copy the telemetry events files into
+  an app, or check its copies ("Telemetry events", below).
 - `just release [minor]`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it;
   `minor` for something new a caller can use, the default `patch` for fixes).
 - `just test`: the tools' tests against a local server. Nothing reaches Cloudflare. GitHub
@@ -148,9 +150,113 @@ Account → D1: Read, Zone → Analytics: Read, Account → Account Analytics: R
 and daily from the owner's routine. **Read-only against Cloudflare:** it sends D1
 only `SELECT` and `PRAGMA table_info` (it refuses anything else) and GraphQL queries;
 it never writes to D1 or changes anything in Cloudflare.
+## Telemetry events
+
+One shared wire format for apps' usage events, so every app sends and stores them the same way (the telemetry
+repo's `docs/standard.md` §3 and §6). Three parts, one per place, all in this repo so they cannot drift:
+
+| Part | File | Runs in |
+|---|---|---|
+| Client | `events/events-client.js` | the app's page: `track(event, details)`, queued and batched |
+| Worker | `events/events-worker.js` | the app's own Worker: `handleEvents(request, env, opts)` for `POST /api/events` |
+| Standalone Worker | `events/events-standalone.js` | a Worker of its own, for an app with no site (a watch app) |
+| Job | `tools/events_job.py` | the telemetry runner: R2 to `events.sqlite3` and the daily tables |
+
+**The wire.** `POST /api/events` on the app's own origin, `Content-Type: text/plain`, one JSON record per line
+(the standard's twelve columns, `details` as an object), at most 64 KB. The batch id, a random UUID, is the
+`X-Batch` header, or `?batch=<uuid>` in the URL: `navigator.sendBeacon` cannot set headers. A retry reuses it.
+The Worker checks method, origin (or key), type, size and id, then writes the body unread to
+`v1/<UTC day>/<batch>.jsonl` in R2 and answers 204. It never parses the body, never reads the IP address and logs
+nothing. 403 origin or key, 405 method, 413 size, 415 type, 400 id or empty body, 503 R2.
+
+**Vendoring.** An app copies the files in; it never imports them from here. From a flarepress checkout, with
+paths from where you run it:
+
+```sh
+just events-vendor --client ../app/web --worker ../app/worker          # a web app
+just events-vendor --standalone ../app/telemetry                       # an app with no site
+just events-vendor --client ../app/web --worker ../app/worker --check  # exit 1 if a copy is missing, edited or behind
+```
+
+Each copy starts with three comment lines naming its source and the sha256 of the original, so an edit inside the
+app shows up (its body no longer matches its header). Change a file here, release, and vendor it again.
+
+**Wire it in an app's Worker** (the `/api/events` route goes before the assets):
+
+```js
+import { handleEvents } from "./events-worker.js";
+if (url.pathname === "/api/events") {
+  return handleEvents(request, env, { bucket: "EVENTS", origins: ["https://app.example.com"] });
+}
+```
+
+`opts`: `bucket` (the R2 binding's name), `origins` (exact `Origin` values), `key` (`{ header, secret }`: the
+header must equal the Worker secret of that name, for a native app, which sends no `Origin`). A site whose
+`Referrer-Policy` is `no-referrer` sends `Origin: null` and is refused: keep `strict-origin-when-cross-origin`.
+
+**The R2 binding** in the app's `site/wrangler.toml` (the bucket is made once, by the owner):
+
+```toml
+[[r2_buckets]]
+binding = "EVENTS"
+bucket_name = "example-app-events"
+```
+
+**The client**, loaded as a module by the page (CSP `connect-src 'self'` covers it):
+
+```js
+import { init, track, clear } from "./events-client.js";
+init({ app: "example", version: VERSION, player: () => playerId, screen: () => screenName,
+       enabled: () => settings.telemetry });
+track("control.use", { control: "pencil", group: "tools", layout: "rail", vw: innerWidth, vh: innerHeight, input: "touch" });
+// the switch's handler, when it is turned off: clear();
+```
+
+`init` options: `app`, `version`, `player` (the app's plain random id, a string or a function; the client never
+makes or hashes one), `screen` (a function), `enabled` (a function, read on every call), and optionally
+`endpoint` (default `/api/events`), `interval` (60000 ms), `maxRecords` (5000), `form` (default from the shortest
+screen side and a coarse pointer: `phone` under 600 px, `tablet`, or `desktop`). It fills `platform` `web`,
+`session` (random per page load), `seq`, `at` (UTC ms) and `tz` (minutes east of UTC). Records queue in memory and
+`localStorage`; batches go every 60 s while shown, and by beacon when the page is hidden or on `pagehide`. A batch
+is dropped only after a 2xx. A page that closed with records queued is sent by the app's next page load. While
+`enabled()` is false nothing is recorded or sent, and queued records are cleared. Register the app's own
+`visibilitychange` listener before `init`, so its `app.background` record rides the beacon.
+
+**A native app** posts the same batches to the standalone Worker with an `X-Events-Key` header equal to its
+secret `EVENTS_KEY` (`wrangler secret put EVENTS_KEY`); `EVENTS_ORIGINS` (a var, comma-separated) may also allow
+browser origins. Its site folder's `wrangler.toml` has `main = "../telemetry/events-standalone.js"` and the
+`EVENTS` binding.
+
+**The runner job** (`telemetry.toml` in the telemetry repo), one per app and bucket:
+
+```toml
+[jobs.example-events]
+repo = "flarepress"
+run = ["python3", "tools/events_job.py", "pull", "--app", "example", "--bucket", "example-app-events",
+       "--events", "{src}/telemetry/events.toml"]
+ack = ["python3", "tools/events_job.py", "ack", "--bucket", "example-app-events"]
+secrets = { R2_ACCESS_KEY_ID = "...", R2_SECRET_ACCESS_KEY = "...", R2_ACCOUNT_ID = "..." }
+d1 = ["daily_events", "daily_players"]
+[jobs.example-events.ids]
+day_players = { columns = ["player"], time = "day", unit = "iso", drop = true }
+```
+
+`pull` lists `v1/`, reads at most 1000 objects a run, and checks each line: exactly the twelve columns, the right
+types, `app` equal to `--app`, `platform` equal to the app's in `events.toml`. It writes this run's new events to
+`$TELEMETRY_OUT/events.sqlite3` (table `events`, key `app, session, seq`), adds counts to `daily_events` (keyed by
+day, app, platform, form, version, event, and `key`: a sorted JSON object of the event's `summary` keys from
+`events.toml`, null when absent), adds to `day_players` and recounts `daily_players`, all in `data.sqlite3`,
+keeps each object under `raw/` and writes `manifest.json`. `event_batches` in `data.sqlite3` has one row per
+object, so a batch id is counted once, however many times or days it arrived. An object with a bad line keeps
+its good lines, goes under `raw/rejected/` and stays in the bucket for good. An event or details key that
+`events.toml` lacks is stored, counted and named in the output. `ack` deletes exactly the manifest's `delete`
+keys. Exit 0, 75 when R2 does not answer, 1 on any other failure. `--events` defaults to
+`../telemetry/events.toml` beside this repo. The R2 token: Object Read & Write, that bucket only.
+
 ## Rules for this repo
 
 - Public: no real domain, person, account ID, zone ID or database ID in any file. Tests use
   `example.com`, `*.test` and `*.invalid`. `tests/test_public.py` checks every tracked file.
-- Tools are bash (3.2 safe: macOS `/bin/bash`) or stdlib Python 3.8+. No packages.
+- Tools are bash (3.2 safe: macOS `/bin/bash`) or stdlib Python 3.8+. No packages. The events files are plain ES
+  modules with no packages, tested with Node's own runner (`node --test`).
 - Every change ships with a test that fails without it.
