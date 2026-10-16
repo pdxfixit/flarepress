@@ -2,7 +2,7 @@
 //   node --test tests/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createEvents, formFor, init, track, flush, clear, MAX_BYTES } from "../events/events-client.js";
+import { createEvents, formFor, init, track, flush, clear, uuidV4, MAX_BYTES } from "../events/events-client.js";
 
 class FakeStorage {
   constructor() { this.m = new Map(); this.full = false; }
@@ -312,4 +312,46 @@ test("the module's own init and track", async () => {
   clear();
   await flush();
   assert.equal(p.fetches.length, 1);
+});
+
+const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+// Runs fn with globalThis.crypto replaced (undefined: no crypto at all), and puts it back.
+async function withCrypto(crypto, fn) {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", { value: crypto, configurable: true, writable: true });
+  try {
+    return await fn();
+  } finally {
+    Object.defineProperty(globalThis, "crypto", saved);
+  }
+}
+
+test("over plain http (no crypto.randomUUID) and with no crypto at all, ids are still v4 UUIDs", async () => {
+  for (const crypto of [{ getRandomValues: (b) => b.fill(0xab) }, undefined,
+    { randomUUID: () => { throw new Error("insecure"); }, getRandomValues: () => { throw new Error("no"); } }]) {
+    await withCrypto(crypto, async () => {
+      assert.match(uuidV4(), V4);
+      const p = page();
+      delete p.globals.uuid;   // the page's own crypto, as a real page has
+      const e = init({ app: "isopix", version: "1", player: "p", screen: () => null, enabled: () => true,
+        globals: p.globals });
+      assert.match(e.session, V4, "init works and makes a session id");
+      assert.equal(track("app.open", {}), true);
+      await flush();
+      assert.match(p.fetches[0].headers["x-batch"], V4);
+    });
+  }
+  assert.equal(uuidV4({ randomUUID: () => "from-randomUUID" }), "from-randomUUID", "randomUUID is used when there");
+});
+
+test("init and track never throw into the app: telemetry that cannot start does nothing", async () => {
+  for (const opts of [null, undefined, { app: "x", globals: { uuid: () => { throw new Error("boom"); } } }]) {
+    const e = init(opts);
+    assert.equal(e.track("a", {}), false);
+    assert.equal(track("a", {}), false);
+    await flush();
+    clear();
+    assert.deepEqual(e.queued(), { records: [], batches: [] });
+  }
 });

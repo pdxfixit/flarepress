@@ -44,6 +44,32 @@ function bytes(s) {
   return new TextEncoder().encode(s).byteLength;
 }
 
+// A random (version 4) UUID. crypto.randomUUID exists only in secure contexts (https, localhost), so a page over
+// plain http falls back to crypto.getRandomValues, and with no crypto at all to Math.random: these ids only need to
+// be unique, not secret.
+export function uuidV4(c = globalThis.crypto) {
+  try {
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  } catch {
+    // fall through
+  }
+  const b = new Uint8Array(16);
+  let filled = false;
+  try {
+    if (c && typeof c.getRandomValues === "function") {
+      c.getRandomValues(b);
+      filled = true;
+    }
+  } catch {
+    filled = false;
+  }
+  if (!filled) for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 function defaults() {
   const g = globalThis;
   let storage = null;
@@ -58,10 +84,10 @@ function defaults() {
     navigator: g.navigator,
     storage,
     fetch: g.fetch?.bind(g),
-    uuid: () => g.crypto.randomUUID(),
+    uuid: () => uuidV4(g.crypto),
     now: () => Date.now(),
-    setInterval: g.setInterval.bind(g),
-    clearInterval: g.clearInterval.bind(g),
+    setInterval: (f, ms) => g.setInterval(f, ms),
+    clearInterval: (id) => g.clearInterval(id),
   };
 }
 
@@ -75,7 +101,29 @@ function detectForm(w, nav) {
   }
 }
 
+// What init returns when telemetry could not start: every call does nothing.
+function inert() {
+  return {
+    track: () => false,
+    flush: () => Promise.resolve(),
+    clear: () => {},
+    session: null,
+    form: null,
+    tick: () => Promise.resolve(),
+    queued: () => ({ records: [], batches: [] }),
+  };
+}
+
+// One page's telemetry. It never throws: when it cannot start, it returns an instance that does nothing.
 export function createEvents(opts) {
+  try {
+    return start(opts);
+  } catch {
+    return inert();
+  }
+}
+
+function start(opts) {
   const g = { ...defaults(), ...(opts.globals ?? {}) };
   const { app: appName } = opts;
   const app = String(appName);
@@ -331,14 +379,26 @@ export function init(opts) {
 
 // Record one event. Does nothing before init() or while the switch is off. Returns whether it was queued.
 export function track(event, details) {
-  return current ? current.track(event, details) : false;
+  try {
+    return current ? current.track(event, details) : false;
+  } catch {
+    return false;
+  }
 }
 
 export function flush(opts) {
-  return current ? current.flush(opts) : Promise.resolve();
+  try {
+    return current ? current.flush(opts) : Promise.resolve();
+  } catch {
+    return Promise.resolve();
+  }
 }
 
 // Drop every queued record, sent or not: call it when the player turns telemetry off.
 export function clear() {
-  if (current) current.clear();
+  try {
+    if (current) current.clear();
+  } catch {
+    // never throw into the app
+  }
 }
