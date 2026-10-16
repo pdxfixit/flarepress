@@ -1,6 +1,6 @@
 # Deploy an app site from its own repo's GitHub Actions run:
 #
-#   - uses: actions/checkout@v7.0.1
+#   - uses: actions/checkout@v7
 #     with: { fetch-depth: 0 }          # git describe needs the tags
 #   - uses: pdxfixit/flarepress@v1              # rolling: moves with each release
 #     with:

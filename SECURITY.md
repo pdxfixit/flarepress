@@ -26,7 +26,7 @@ Only the latest `v1` release is supported; a fix ships as the next `v1.M.P`, and
 ## Supply chain
 
 - Wrangler runs through `npx`, pinned to one exact version in `tools/wrangler.sh`.
-- The workflows pin each action by commit, and check the `just` download against its release's
+- The workflows use each action's rolling major tag (the owner prefers a break to show at once), and check the `just` download against its release's
   published SHA-256.
 - `@v1` is a rolling tag. To review each change before you run it, pin
   `pdxfixit/flarepress@<full commit SHA>` instead.
