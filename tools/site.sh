@@ -46,17 +46,33 @@ esac; fi
 
 KEYS=" url committed pwa compare compare_wait version_wait rollback "
 conf() { [ -f "$DIR/site.conf" ] && sed -n "s/^$1=//p" "$DIR/site.conf" | tail -1 || true; }
-# An app site needs site.conf, and a mistyped key is an error, not a silent default.
+# An app site needs site.conf, and a mistyped key or value is an error, not a
+# silent default (rollback=revrt once meant redeploy, the mode revert refuses).
 conf_check() {
   [ -f "$DIR/site.conf" ] || die "no $DIR/site.conf: $DOMAIN is not an app site (see AGENTS.md, App sites)"
-  local k bad=""
-  for k in $(grep -v '^[[:space:]]*\(#\|$\)' "$DIR/site.conf" | sed 's/=.*//'); do
+  local line k bad=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Blank lines and # comments (indented or not) are fine.
+    case "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')" in ''|'#'*) continue ;; esac
+    k=${line%%=*}
+    case "$line" in *=*) ;; *) k="" ;; esac
+    case "$k" in ''|*[!a-z_]*) die "$DIR/site.conf: not key=value (no spaces around =): $line" ;; esac
     case "$KEYS" in *" $k "*) ;; *) bad="$bad $k" ;; esac
-  done
+  done < "$DIR/site.conf"
   [ -z "$bad" ] || die "unknown key(s) in $DIR/site.conf:$bad"
+  case "$(conf pwa)" in ''|0|1) ;; *) die "$DIR/site.conf: pwa=$(conf pwa), want 0 or 1" ;; esac
+  case "$(conf rollback)" in ''|redeploy|revert) ;; *) die "$DIR/site.conf: rollback=$(conf rollback), want redeploy or revert" ;; esac
+  for k in compare_wait version_wait; do
+    case "$(conf "$k")" in *[!0-9]*) die "$DIR/site.conf: $k=$(conf "$k"), want whole seconds" ;; esac
+  done
 }
-first_route() { sed -n 's/.*pattern *= *"\([^"]*\)".*/\1/p' "$DIR/wrangler.toml" | head -1; }
-URL="${DEPLOY_URL:-$(conf url)}"; URL="${URL:-https://$(first_route)}"; URL="${URL%/}"
+# The first route's host: a zone route is "app.example.com/*", a Custom Domain a bare host.
+first_route() { sed -n 's/.*pattern *= *"\([^"]*\)".*/\1/p' "$DIR/wrangler.toml" | head -1 | sed 's#^[a-z]*://##; s#/.*##'; }
+URL="${DEPLOY_URL:-$(conf url)}"
+if [ -z "$URL" ]; then HOST=$(first_route); case "$HOST" in ''|*'*'*) ;; *) URL="https://$HOST" ;; esac; fi
+URL="${URL%/}"
+# The live checks need an address: url= in site.conf, or a route with a plain host.
+need_url() { [ -n "$URL" ] || die "no address to check: add url=https://… to $DIR/site.conf (wrangler.toml's first route is ${HOST:-missing}, not a plain host)"; }
 # The [assets] directory, relative to the site folder (public/ when not given).
 ASSETS=$(python3 "$FP/tools/assets_dir.py" "$DIR/wrangler.toml")
 PUBLIC=$(cd -P "$ASSETS" 2>/dev/null && pwd) || PUBLIC=""
@@ -92,6 +108,7 @@ RESOLVE=()
 DNS_FALLBACK="${DNS_FALLBACK:-dig +short +time=3 @1.1.1.1}"
 pin_dns() {
   local hostport host port ip rc=0
+  need_url
   hostport=$(printf '%s' "$URL" | sed -E 's#^[a-z]+://([^/]+).*#\1#')
   host=${hostport%%:*}; port=${hostport#*:}
   [ "$port" != "$hostport" ] || case "$URL" in https://*) port=443 ;; *) port=80 ;; esac
@@ -105,14 +122,13 @@ pin_dns() {
 }
 cu() { curl ${RESOLVE[@]+"${RESOLVE[@]}"} "$@"; }
 
-# GET $1 into the globals code, ctype, cache, etag, modified (empty if unreachable).
+# GET $1 into the globals code, ctype, cache, etag (empty if unreachable).
 probe() {
   local hdr; hdr=$(mktemp)
   code=$(cu -sS -m 20 -o /dev/null -D "$hdr" -w '%{http_code}' "$1" 2>/dev/null) || code=000
   ctype=$(tr -d '\r' < "$hdr" | awk -F': ' 'tolower($1)=="content-type"{print $2}' | tail -1)
   cache=$(tr -d '\r' < "$hdr" | awk -F': ' 'tolower($1)=="cache-control"{print $2}' | tail -1)
   etag=$(tr -d '\r' < "$hdr" | awk -F': ' 'tolower($1)=="etag"{print $2}' | tail -1)
-  modified=$(tr -d '\r' < "$hdr" | awk -F': ' 'tolower($1)=="last-modified"{print $2}' | tail -1)
   rm -f "$hdr"
 }
 stamp_of() { sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' "$1" 2>/dev/null || true; }
@@ -252,7 +268,7 @@ cmd_live() {
 # a committed path (the previous release). rollback=revert only prints the revert
 # steps and refuses --yes; rollback=redeploy pushes a throwaway checkout of that commit.
 cmd_rollback() {
-  local to yes=0 sha mode tmp wt site l t v rel bad
+  local to yes=0 sha mode tmp wt v rel bad
   conf_check; need_repo
   SITE_REL=$(cd -P "$DIR" && pwd); SITE_REL=${SITE_REL#"$REPO"/}
   # shellcheck disable=SC2086

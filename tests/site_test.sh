@@ -83,6 +83,14 @@ run check --from /tmp && no "check refuses another checkout" || ok "check refuse
 echo 'complare=x' >> "$T/app/site/site.conf"
 run check && no "an unknown site.conf key fails" || { says 'unknown key' && ok "an unknown site.conf key fails" || no "an unknown site.conf key fails (wrong reason)"; }
 conf
+# 5b. A mistyped value is an error too: rollback=revrt once meant redeploy.
+for bad in 'rollback=revrt' 'pwa=yes' 'compare_wait=ninety' 'pwa = 1' 'just a line'; do
+  conf; echo "$bad" >> "$T/app/site/site.conf"
+  run rollback && no "site.conf refuses '$bad'" || { says 'site.conf' && ok "site.conf refuses '$bad'" || { no "site.conf refuses '$bad' (wrong reason)"; cat "$T/out"; }; }
+done
+conf; printf '# a note\n  # indented\n\n' >> "$T/app/site/site.conf"
+run check && ok "site.conf comments and blank lines are fine" || { no "site.conf comments and blank lines are fine"; cat "$T/out"; }
+conf
 # 6. Noodle Pads' bug: an edit outside the committed paths must not make stamp
 #    and verify disagree (stamp said X, verify expected X-dirty and failed).
 echo more >> "$T/app/TODO.md"
@@ -139,6 +147,13 @@ G push
 ci() { (cd "$T/app" && GITHUB_ACTIONS=true GITHUB_REF="$1" GITHUB_SHA="$(git -C "$T/app" rev-parse HEAD)" "$SH" "$T/fp/tools/site.sh" "$T/app/site" check) > "$T/out" 2>&1; }
 ci refs/heads/main && says 'pushed commit' && ok "CI: a run for main passes check" || { no "CI: a run for main passes check"; cat "$T/out"; }
 ci refs/heads/feature && no "CI: a run for another branch is refused" || { says 'not refs/heads/main' && ok "CI: a run for another branch is refused" || no "CI: refused for the wrong reason"; }
+# 15b. With no url=, the address is the first route's host: a zone route's /* is not part of it.
+conf; sed -i.bak '/^url=/d' "$T/app/site/site.conf"; cp "$T/app/site/wrangler.toml" "$T/wt.bak"
+printf 'name = "site-test"\nroutes = [ { pattern = "app.site-test.invalid/*", zone_name = "site-test.invalid" } ]\n\n[assets]\ndirectory = "../web"\n' > "$T/app/site/wrangler.toml"
+run rollback && says 'Roll https://app.site-test.invalid back' && ok "a zone route's host is the address, without /*" || { no "a zone route's host is the address, without /*"; cat "$T/out"; }
+printf 'name = "site-test"\nroutes = [ { pattern = "*.site-test.invalid/*", zone_name = "site-test.invalid" } ]\n\n[assets]\ndirectory = "../web"\n' > "$T/app/site/wrangler.toml"
+run gate && no "a wildcard route with no url= is refused" || { says 'no address to check' && ok "a wildcard route with no url= is refused" || { no "a wildcard route with no url= is refused (wrong reason)"; cat "$T/out"; }; }
+cp "$T/wt.bak" "$T/app/site/wrangler.toml"; rm -f "$T/app/site/site.conf.bak"
 # 16. A redeploy rollback names the old commit's own site folder.
 conf redeploy
 run rollback && says 'site' && says 'dry: nothing changed' && ok "rollback names the old commit's site folder" || { no "rollback names the old commit's site folder"; cat "$T/out"; }
