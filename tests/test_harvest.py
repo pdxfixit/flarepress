@@ -138,6 +138,12 @@ class Base(unittest.TestCase):
             code = H.main(list(args), root=self.root, today=TODAY)
         return code, out.getvalue()
 
+    def run_harvest_in(self, root, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = H.main(list(args), root=root, today=TODAY)
+        return code, out.getvalue()
+
     def local(self, sql):
         conn = sqlite3.connect(self.db)
         try:
@@ -257,8 +263,9 @@ class Tables(Base):
 
     def test_only_reads_d1(self):
         cf = H.Cloudflare(TOKEN)
-        with self.assertRaises(ValueError):
-            cf.d1(ACCOUNT, DBID, 'DELETE FROM activity')
+        for sql in ('DELETE FROM activity', 'SELECT 1; DELETE FROM activity', 'PRAGMA table_info(x); DROP TABLE x'):
+            with self.subTest(sql=sql), self.assertRaises(ValueError):
+                cf.d1(ACCOUNT, DBID, sql)
         self.assertFalse([e for e in self.server.log if e[0] == 'd1'])
 
 
@@ -496,6 +503,28 @@ class Config(Base):
         code, out = self.run_harvest()
         self.assertEqual(code, 0, out)
         self.assertIn(('zones', 'example.com'), self.server.log)
+
+    def test_zone_under_a_two_part_suffix(self):
+        # A zone with three labels (as under co.uk): the nearest name the token sees wins, not the last two labels.
+        self.assertEqual(H.zone_candidates('app.example.zz.test/*'), ['app.example.zz.test', 'example.zz.test', 'zz.test'])
+        self.server.zones = {'example.zz.test'}
+        self.site('analytics=1\n', toml='name = "x"\nroutes = [ { pattern = "app.example.zz.test/*", zone_name = "example.zz.test" } ]\n')
+        code, out = self.run_harvest()
+        self.assertEqual(code, 0, out)
+        self.assertEqual([e for e in self.server.log if e[0] == 'zones'],
+                         [('zones', 'app.example.zz.test'), ('zones', 'example.zz.test')])
+
+    def test_no_zone_names_every_try(self):
+        self.server.zones = set()
+        self.site('analytics=1\n', toml='name = "x"\nroutes = [ { pattern = "app.example.com" } ]\n')
+        code, out = self.run_harvest()
+        self.assertEqual(code, 1, out)
+        self.assertIn('none of app.example.com, example.com', out)
+
+    def test_no_sites_folder_says_so(self):
+        code, out = self.run_harvest_in(os.path.join(self.root, 'missing'))
+        self.assertEqual(code, 1)
+        self.assertIn('no sites folder', out)
 
     def test_wrangler_parsing(self):
         folder = os.path.join(self.root, 'w')

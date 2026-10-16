@@ -108,8 +108,11 @@ def decide(results):
     return ok, lines
 
 
-def main(argv):
-    exps = expectations(only=tuple(argv))
+def main(argv, root=ROOT):
+    if not os.path.isdir(root):
+        print('🛑 no sites folder %s (set FLAREPRESS_SITES)' % root)
+        return 2
+    exps = expectations(root, only=tuple(argv))
     if not exps:
         print('no site folders matched: %s' % ' '.join(argv))
         return 2

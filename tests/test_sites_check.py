@@ -1,4 +1,6 @@
 """Tests for tools/sites_check.py: what each folder must answer, and the verdict."""
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -42,6 +44,14 @@ class Expectations(unittest.TestCase):
             write(os.path.join(root, 'a.com/wrangler.toml'), 'routes = [ { pattern = "a.com" } ]\n')
             write(os.path.join(root, 'b.com/wrangler.toml'), 'routes = [ { pattern = "b.com" } ]\n')
             self.assertEqual([e[0] for e in S.expectations(root, only=('b.com',))], ['b.com'])
+
+
+    def test_no_sites_folder_says_so(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as root, contextlib.redirect_stdout(out):
+            code = S.main([], root=os.path.join(root, 'missing'))
+        self.assertEqual(code, 2)
+        self.assertIn('no sites folder', out.getvalue())
 
 
 class Decide(unittest.TestCase):

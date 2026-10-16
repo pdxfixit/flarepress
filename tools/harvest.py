@@ -16,8 +16,9 @@ error.
   keychain=  the macOS Keychain service holding a read-only Cloudflare API token,
              default cloudflare-analytics-read (HARVEST_TOKEN overrides it)
   account=   the account id (default: from the zone lookup)
-  zone=      the zone name (default: the first route in wrangler.toml, cut to
-             its last two labels)
+  zone=      the zone name (default: the first route's host in wrangler.toml,
+             or its nearest parent the token can see: app.example.com tries
+             app.example.com, then example.com)
   analytics= 0 or 1 (default 1): copy Cloudflare's daily analytics
   table=     one D1 table a line, either
                table=<name> append <idcol>
@@ -75,6 +76,10 @@ class ApiError(Exception):
     def __init__(self, msg, unreachable=False):
         super().__init__(msg)
         self.unreachable = unreachable
+
+
+class NoZone(ApiError):
+    """The token sees no zone by that name."""
 
 
 # ── config ──
@@ -168,8 +173,16 @@ def wrangler(folder):
 
 def zone_of(pattern):
     """The zone a route pattern lives in: its host's last two labels."""
+    return zone_candidates(pattern)[-1]
+
+
+def zone_candidates(pattern):
+    """The names a route's zone can have, nearest first: app.shop.example.com gives
+    app.shop.example.com, shop.example.com, example.com. The last two labels
+    alone are wrong for a zone under a two-part suffix (co.uk, com.au)."""
     host = re.sub(r'^[a-z]+://', '', pattern).split('/')[0].split(':')[0].lstrip('*.')
-    return '.'.join(host.split('.')[-2:])
+    labels = host.split('.')
+    return ['.'.join(labels[i:]) for i in range(0, max(len(labels) - 1, 1))]
 
 
 def token_for(service):
@@ -219,12 +232,24 @@ class Cloudflare:
         res = self.call('GET', '/zones?' + urllib.parse.urlencode({'name': name}))
         found = (res or {}).get('result') or []
         if not found:
-            raise ApiError('zone %s not found (does the token have it?)' % name)
+            raise NoZone('zone %s not found (does the token have it?)' % name)
         return found[0]['id'], (found[0].get('account') or {}).get('id', '')
+
+    def zone_for(self, pattern):
+        """(zone id, account id) for the nearest zone a route lives in."""
+        names = zone_candidates(pattern)
+        for name in names:
+            try:
+                return self.zone(name)
+            except NoZone:
+                continue
+        raise NoZone('no zone for %s: the token sees none of %s (or set zone= in harvest.conf)'
+                     % (pattern, ', '.join(names)))
 
     def d1(self, account, database, sql, params=()):
         """Rows of one read-only statement."""
-        if not re.match(r'^\s*(SELECT\b|PRAGMA\s+table_info\b)', sql, re.I):
+        # One statement only: D1 runs every statement in a string, so "SELECT 1; DELETE ..." must not pass.
+        if not re.match(r'^\s*(SELECT\b|PRAGMA\s+table_info\b)', sql, re.I) or ';' in sql:
             raise ValueError('harvest only reads D1: %s' % sql)
         res = self.call('POST', '/accounts/%s/d1/database/%s/query' % (account, database),
                         {'sql': sql, 'params': list(params)})
@@ -500,10 +525,12 @@ def harvest_site(domain, root, days, db_path, say, today=None):
             ids = {'account': conf['account'], 'zone': ''}
             need_zone = conf['analytics'] == '1' or (conf['tables'] and not ids['account'])
             if need_zone:
-                zone = conf['zone'] or (zone_of(site['route']) if site['route'] else '')
-                if not zone:
+                if conf['zone']:
+                    ids['zone'], acct = cf.zone(conf['zone'])
+                elif site['route']:
+                    ids['zone'], acct = cf.zone_for(site['route'])
+                else:
                     raise ApiError('no zone= and no route in wrangler.toml to take it from')
-                ids['zone'], acct = cf.zone(zone)
                 ids['account'] = ids['account'] or acct
         except ApiError as e:
             bad += fail('cloudflare', str(e), e)
@@ -574,6 +601,9 @@ def main(argv=None, root=ROOT, today=None):
     a = p.parse_args(argv)
     if a.days < 1:
         p.error('--days must be 1 or more')
+    if not a.domains and not os.path.isdir(root):
+        print('🛑 no sites folder %s (set FLAREPRESS_SITES, or name a domain)' % root)
+        return 1
     domains = a.domains or sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, 'harvest.conf')))
     if not domains:
         print('🛑 no folder has a harvest.conf')
