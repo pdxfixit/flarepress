@@ -15,7 +15,7 @@
 //
 // Records queue in memory and in localStorage (one entry per page load, `events:<app>:<session>`). They are sent as
 // one JSON line each, in batches of at most 64 KB, to POST /api/events (text/plain, X-Batch: a random UUID):
-//   - every 60 s while the page is shown (fetch);
+//   - every 5 minutes while the page is shown (fetch; the `interval` option);
 //   - when the page is hidden, and on pagehide (navigator.sendBeacon, which cannot set headers: the batch id goes in
 //     the query, ?batch=<uuid>, and the Worker reads either).
 // A batch is dropped only after a 2xx. Until then it is kept and sent again with the same id, so the Worker overwrites
@@ -129,7 +129,7 @@ function start(opts) {
   const app = String(appName);
   const version = String(opts.version);
   const endpoint = opts.endpoint ?? "/api/events";
-  const interval = opts.interval ?? 60000;
+  const interval = opts.interval ?? 300000; // 5 minutes: one Worker request per open page per 5 minutes (Ben, 2026-10-16)
   const maxRecords = opts.maxRecords ?? 5000;
   const enabled = typeof opts.enabled === "function" ? opts.enabled : () => false;
   const prefix = `events:${app}:`;

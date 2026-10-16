@@ -158,10 +158,10 @@ test("batches stay within 64 KB, and a record over 64 KB is dropped", async () =
   assert.equal(p.fetches.reduce((n, f) => n + lines(f.body).length, 0), 150);
 });
 
-test("every 60 s while shown; on hidden and pagehide by beacon, with the id in the query", async () => {
+test("every 5 minutes while shown; on hidden and pagehide by beacon, with the id in the query", async () => {
   const p = page();
   const e = events(p);
-  assert.deepEqual([...p.timers.values()].map((t) => t.ms), [60000]);
+  assert.deepEqual([...p.timers.values()].map((t) => t.ms), [300000], "the default interval is 5 minutes");
   e.track("app.open", {});
   await [...p.timers.values()][0].f();
   assert.equal(p.fetches.length, 1, "the timer sends");
@@ -230,7 +230,7 @@ test("records survive a closed page: the next load picks them up once the entry 
   events(p2);
   assert.equal(storage.length, 1);
   // three intervals later it is taken over
-  const p3 = page({ storage, at: p1.t + 3 * 60000 + 1 });
+  const p3 = page({ storage, at: p1.t + 3 * 300000 + 1 });
   const third = events(p3);
   third.track("c", {});
   await third.flush();
@@ -244,7 +244,7 @@ test("a tab whose entry another load took over drops its copy instead of sending
   const p1 = page({ storage });
   const first = events(p1);
   first.track("a", {});
-  const p2 = page({ storage, at: p1.t + 4 * 60000 });
+  const p2 = page({ storage, at: p1.t + 4 * 300000 });
   events(p2);
   await first.flush();
   assert.equal(p1.fetches.length, 0);
@@ -256,9 +256,9 @@ test("a live tab's heartbeat keeps its entry its own", () => {
   const p1 = page({ storage, status: 500 });
   const first = events(p1);
   first.track("a", {});
-  p1.t += 2 * 60000;
+  p1.t += 2 * 300000;
   first.tick();
-  const p2 = page({ storage, at: p1.t + 2 * 60000 });
+  const p2 = page({ storage, at: p1.t + 2 * 300000 });
   const second = events(p2);
   assert.deepEqual(second.queued(), { records: [], batches: [] });
 });

@@ -219,10 +219,10 @@ track("control.use", { control: "pencil", group: "tools", layout: "rail", vw: in
 
 `init` options: `app`, `version`, `player` (the app's plain random id, a string or a function; the client never
 makes or hashes one), `screen` (a function), `enabled` (a function, read on every call), and optionally
-`endpoint` (default `/api/events`), `interval` (60000 ms), `maxRecords` (5000), `form` (default from the shortest
+`endpoint` (default `/api/events`), `interval` (300000 ms, 5 minutes), `maxRecords` (5000), `form` (default from the shortest
 screen side and a coarse pointer: `phone` under 600 px, `tablet`, or `desktop`). It fills `platform` `web`,
 `session` (random per page load), `seq`, `at` (UTC ms) and `tz` (minutes east of UTC). Records queue in memory and
-`localStorage`; batches go every 60 s while shown, and by beacon when the page is hidden or on `pagehide`. A batch
+`localStorage`; batches go every 5 minutes while shown, and by beacon when the page is hidden or on `pagehide`. A batch
 is dropped only after a 2xx. A page that closed with records queued is sent by the app's next page load. While
 `enabled()` is false nothing is recorded or sent, and queued records are cleared. Register the app's own
 `visibilitychange` listener before `init`, so its `app.background` record rides the beacon.
