@@ -7,11 +7,16 @@
 #   tools/release.sh          print what it would tag; change nothing
 #   tools/release.sh --push   tag and push
 #
-# HEAD already released: says so and stops. A change that breaks a caller is a
-# new major (RELEASE_MAJOR=2), which each app moves to on purpose.
+# RELEASE_BUMP=patch (default: fixes) or minor (something new a caller can use)
+# picks the next number. HEAD already released: says so and stops. A change
+# that breaks a caller is a new major (RELEASE_MAJOR=2), which each app moves
+# to on purpose.
 # Bash 3.2 safe (macOS /bin/bash).
 set -euo pipefail
 major=${RELEASE_MAJOR:-1}
+bump=${RELEASE_BUMP:-patch}
+case "$bump" in patch|minor) ;; *) echo "🛑 RELEASE_BUMP=$bump, want patch or minor" >&2; exit 1 ;; esac
+case "$major" in ''|*[!0-9]*) echo "🛑 RELEASE_MAJOR=$major, want a number" >&2; exit 1 ;; esac
 head=$(git rev-parse HEAD)
 last=$(git tag -l "v$major.*.*" --sort=-v:refname | head -1)
 if [ -n "$last" ] && [ "$(git rev-parse "$last^{}")" = "$head" ]; then
@@ -24,7 +29,8 @@ else
   IFS=. read -r M m p <<EOT
 ${last#v}
 EOT
-  next="v$M.$m.$((p + 1))"; range="$last..HEAD"
+  if [ "$bump" = minor ]; then next="v$M.$((m + 1)).0"; else next="v$M.$m.$((p + 1))"; fi
+  range="$last..HEAD"
 fi
 notes=$(git log --format='- %s (%h)' "$range")
 echo "📦 $next at $(git rev-parse --short HEAD), after ${last:-nothing}:"

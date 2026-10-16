@@ -31,4 +31,13 @@ git -C "$T/origin.git" cat-file -p "$(git -C "$T/origin.git" rev-parse refs/tags
   && [ "$(git -C "$T/origin.git" cat-file -p "$(git -C "$T/origin.git" rev-parse refs/tags/v1)" | sed -n 's/^type //p')" = commit ] \
   && ok "v1 is annotated and points at the commit, not at a tag" || no "v1 points at the commit"
 
+# A minor release resets the patch number; a bump that is neither is refused.
+echo three > "$T/r/a"; G commit -am "feat: three"; G push
+(export RELEASE_BUMP=minor; rel --push) && [ "$(remote_tag v1.1.0)" = "$(git -C "$T/r" rev-parse HEAD)" ] && [ "$(remote_tag v1)" = "$(git -C "$T/r" rev-parse HEAD)" ] \
+  && ok "RELEASE_BUMP=minor makes v1.1.0, and v1 moves to it" || { no "RELEASE_BUMP=minor makes v1.1.0"; cat "$T/out"; }
+echo four > "$T/r/a"; G commit -am "fix: four"; G push
+rel --push && [ "$(remote_tag v1.1.1)" = "$(git -C "$T/r" rev-parse HEAD)" ] && ok "the next patch after v1.1.0 is v1.1.1" || { no "the next patch after v1.1.0 is v1.1.1"; cat "$T/out"; }
+echo five > "$T/r/a"; G commit -am "five"; G push
+(export RELEASE_BUMP=major; rel --push) && no "RELEASE_BUMP=major is refused" || { [ -z "$(git -C "$T/origin.git" tag -l 'v1.1.2' 'v1.2.0' 'v2*')" ] && ok "RELEASE_BUMP=major is refused and tags nothing" || no "RELEASE_BUMP=major tags nothing"; }
+
 [ "$fails" = 0 ] && echo "🎉 release.sh: all passed" || { echo "💥 release.sh: $fails failed"; exit 1; }
