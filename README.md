@@ -15,7 +15,8 @@ Bash and stdlib Python, no packages to install. Wrangler runs through `npx`, pin
 
 ## What it assumes
 
-flarepress is opinionated. Read this before you adopt it.
+flarepress is built for one owner's sites and shared as it is: it does what those sites need,
+and may never support yours. MIT licensed ([LICENSE](LICENSE)); fork it freely.
 
 - **The live site is always a commit on `main`.** `check` refuses any other branch, a dirty
   tree and an unpushed commit. Another default branch name is not supported.
