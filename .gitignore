@@ -1,3 +1,4 @@
 .wrangler/
 .wrangler.deploy.toml
 __pycache__/
+.DS_Store

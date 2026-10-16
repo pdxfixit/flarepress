@@ -171,7 +171,7 @@ sites *domains:
 harvest *domains:
     python3 tools/harvest.py {{domains}}
 
-# 🚀 Release: GitHub runs the tests, tags main as the next v1.M.P and moves v1 (agents start it through the API)
-release:
-    gh workflow run release.yml --repo pdxfixit/flarepress --ref main
+# 🚀 Release: GitHub runs the tests, tags main as the next v1.M.P and moves v1 (just release minor: something new; agents start it through the API)
+release bump="patch":
+    gh workflow run release.yml --repo pdxfixit/flarepress --ref main -f bump={{bump}}
     @echo "Started: https://github.com/pdxfixit/flarepress/actions/workflows/release.yml"

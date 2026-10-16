@@ -1,15 +1,51 @@
-# On every push: the tools' tests (just test). Nothing reaches Cloudflare.
+# The tools' tests (just test), on Linux and on macOS: there the tools run
+# under /bin/bash 3.2 and the system python3, as on the owner's Mac, so "Bash
+# 3.2 safe" is checked, not hoped. Nothing reaches Cloudflare. Runs on every
+# push to a branch (not tags: a release tags a commit that was already tested),
+# every pull request, and before every release (release.yml calls it).
 name: test
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            just: x86_64-unknown-linux-musl
+            sha256: 4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+          - os: macos-15
+            just: aarch64-apple-darwin
+            sha256: 50ae3e996c974a0bf32ea7d10f495070df33f1b43e0616b2769e3d4821ed8f48
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
-      - name: Install just (pinned release)
-        run: curl -sSfL https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz | sudo tar xz -C /usr/local/bin just
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install just 1.58.0 (checksum from its release's SHA256SUMS)
+        env:
+          TARGET: ${{ matrix.just }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/just.tgz" "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-$TARGET.tar.gz"
+          echo "$SHA256  $RUNNER_TEMP/just.tgz" | shasum -a 256 -c -
+          sudo tar xzf "$RUNNER_TEMP/just.tgz" -C /usr/local/bin just
+      - name: Use macOS's own python3 (3.9) and show /bin/bash (3.2)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" && ln -sf /usr/bin/python3 "$RUNNER_TEMP/bin/python3"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/python3" --version; /bin/bash --version | head -1
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck -S warning tools/*.sh tests/*.sh
       - name: just test
         run: just test

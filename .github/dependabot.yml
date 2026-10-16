@@ -1,0 +1,9 @@
+# Keeps the actions this repo's workflows pin (by commit, with the tag in a
+# comment) current. The wrangler version tools/wrangler.sh runs and the just
+# release the workflows install are pinned by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

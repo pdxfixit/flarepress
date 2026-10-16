@@ -15,6 +15,9 @@
 # wrangler deploy, then verify the live site serves this commit.
 name: flarepress deploy
 description: Check, stamp, deploy and verify one app site folder on Cloudflare Workers.
+branding:
+  icon: upload-cloud
+  color: orange
 inputs:
   site:
     description: Path to the site folder (wrangler.toml and site.conf), from the repo root.
