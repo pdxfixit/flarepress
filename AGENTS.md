@@ -41,6 +41,10 @@ a Mac the app's recipes export them from its config file.
   folder is never touched or removed. A path that is not a site folder (no `wrangler.toml`, or no route with a
   domain name) is refused, the others are still linked, and the exit is 1.
 - `just d1 <site> …` / `just kv <site> …` / `just whoami <site>`: wrangler with the same auth.
+- `just secret <site> NAME [flags]`: `wrangler secret put NAME` with the same auth (and `${NAME}` ids filled), so a
+  Worker secret is set like the site's D1. The value comes on stdin, typed at wrangler's prompt or piped
+  (`printf '%s' "$KEY" | just secret <site> NAME`), never as an argument; a NAME that is not letters, digits and `_` is
+  refused before wrangler starts. Flags such as `--env production` reach wrangler.
 - `just check|gate|stamp|verify|live|rollback <site>`: the app-site steps (below).
 - `just sites [domain…]`: every site under `$FLAREPRESS_SITES` answers as its folder says
   (aliases 301 to their target, move pages 200 at / and 301 elsewhere, sites 200, app sites
@@ -228,7 +232,7 @@ is dropped only after a 2xx. A page that closed with records queued is sent by t
 `visibilitychange` listener before `init`, so its `app.background` record rides the beacon.
 
 **A native app** posts the same batches to the standalone Worker with an `X-Events-Key` header equal to its
-secret `EVENTS_KEY` (`wrangler secret put EVENTS_KEY`); `EVENTS_ORIGINS` (a var, comma-separated) may also allow
+secret `EVENTS_KEY` (`just secret <site> EVENTS_KEY`); `EVENTS_ORIGINS` (a var, comma-separated) may also allow
 browser origins. Its site folder's `wrangler.toml` has `main = "../telemetry/events-standalone.js"` and the
 `EVENTS` binding.
 

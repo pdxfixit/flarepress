@@ -159,6 +159,17 @@ kv site *args:
 whoami site:
     @cd "{{here}}" && "{{tools}}/wrangler.sh" "$1" whoami
 
+# Set a Worker secret with the same auth as push; the value comes on stdin (typed at wrangler's prompt, or piped), never as an argument:
+#   just secret example.com EVENTS_KEY
+#   printf '%s' "$KEY" | just secret ~/src/app/site EVENTS_KEY
+[positional-arguments]
+secret site name *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    printf '%s\n' "$2" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' \
+      || { echo "🛑 '$2' is not a secret name (letters, digits and _, as EVENTS_KEY); the value goes on stdin, never here" >&2; exit 1; }
+    cd "{{here}}" && exec "{{tools}}/wrangler.sh" "$1" secret put "$2" "${@:3}"
+
 # ---- App sites (a folder with site.conf): the shared deploy steps.
 # ---- All read-only except `rollback --yes`. See AGENTS.md, App sites.
 
@@ -199,6 +210,7 @@ test:
     bash tests/new_test.sh
     bash tests/link_test.sh
     bash tests/wrangler_test.sh
+    bash tests/secret_test.sh
     bash tests/release_test.sh
     python3 -m unittest discover -s tests -p 'test_*.py'
     if command -v node >/dev/null; then node --test tests/*.test.mjs; elif [ -n "${CI:-}" ]; then echo "🛑 node is needed for the events tests" >&2; exit 1; else echo "⚠️  node not found: the events JavaScript tests did not run"; fi
