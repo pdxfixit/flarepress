@@ -274,7 +274,7 @@ file the main checkout holds uncommitted edits in (`--wait` waits up to `LAND_WA
 cherry-picks them in `.worktrees/land-*` (git's `info/exclude` ignores it), settling conflicts in the files
 `resolve=` names (a path or glob, first match wins) with `tools/resolve_todo.py`, `tools/resolve_questions.py`
 or `tools/resolve_words.py` (long lines word by word), and stopping on any other conflict, or a clash on the
-same words, with the worktree kept for `--continue`; pulls again and rebases the picked commits when the branch moved meanwhile;
+same words, with the worktree kept for `--continue`; runs `after_pick=` after each pick and amends what it changed into that commit; pulls again and rebases the picked commits when the branch moved meanwhile;
 runs `test=`; with `ci=gate` pushes `land/<sha>` and waits for the `ci_workflow` run (`LAND_TIMEOUT`, default
 900 s); pushes; only then moves the branch here and syncs the touched files (deletions too). A refused push
 leaves the main checkout as it was. `tests/test_land.py` covers each step in throwaway repos.

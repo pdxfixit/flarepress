@@ -190,6 +190,17 @@ class BranchMode(Land):
         self.assertIn('second agent change', (self.repo / 'b.txt').read_text(), 'the main checkout is synced')
         self.assertTrue((self.repo / 'c.txt').exists(), 'and pulled')
 
+    def test_land_conf_is_read_from_the_worktree_it_runs_in(self):
+        """2026-10-18: the main checkout had another branch out, with no land.conf, and the CI gate was off."""
+        wt = self.worktree()
+        commit(wt, 'land.conf', 'test=echo the worktree conf ran\n', 'agent: its own test')
+        git(self.repo, 'switch', '-q', '-c', 'elsewhere')
+        (self.repo / 'land.conf').unlink()
+        git(self.repo, 'commit', '-q', '-am', 'no land.conf on this branch')
+        out = self.land(cwd=wt)   # the main checkout's (none) would run `just test`, which fails here
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn('the worktree conf ran', out.stdout)
+
     def test_a_commit_already_landed_is_skipped(self):
         wt = self.worktree()
         self.assertEqual(self.land(self.sha).returncode, 0)
@@ -277,6 +288,23 @@ class FailingTests(Land):
         self.assertIn('tests fail', out.stderr)
         self.assertEqual(self.remote_head(), self.start)
         self.assertEqual(git(self.repo, 'rev-parse', self.branch), self.start)
+
+
+class AfterPick(Land):
+    conf = 'test=true\nafter_pick=git rev-list --count HEAD > count.txt; git add count.txt\n'
+
+    def test_what_after_pick_changes_is_amended_into_each_commit(self):
+        self.push_elsewhere('c.txt', 'new\n')
+        git(self.repo, 'switch', '-q', 'agent')
+        second = commit(self.repo, 'b.txt', 'one\nagent too\n', 'agent second')
+        git(self.repo, 'switch', '-q', self.branch)
+        out = self.land(self.sha, second)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(self.log()[:3], ['agent second', 'agent change', 'pushed from elsewhere'], 'no extra commits')
+        # Each commit carries its own count on the landed branch: 3 and 4 (start, elsewhere, then these).
+        self.assertEqual(git(self.repo, 'show', f'{self.branch}~1:count.txt'), '3')
+        self.assertEqual(git(self.repo, 'show', f'{self.branch}:count.txt'), '4')
+        self.assertEqual(self.remote_head(), git(self.repo, 'rev-parse', self.branch))
 
 
 class Master(Land):

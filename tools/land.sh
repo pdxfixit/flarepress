@@ -25,7 +25,7 @@
 # default 10 s), instead of stopping. A hand-written wait loop once passed
 # that file list as one word in zsh and landed early (2026-10-16).
 #
-# Config: land.conf at the app's root, key=value lines, read and never run as
+# Config: land.conf at the root of the checkout it runs in, key=value lines, read and never run as
 # shell; an unknown key is an error. Every key is optional:
 #   branch=main            the branch to land on (default: GitHub's default branch)
 #   test=just test         run in the landing worktree before the push (bash -c)
@@ -37,6 +37,9 @@
 #                          match wins) are resolved by tools/resolve_<kind>.py:
 #                          todo, questions, or words (long lines merged word by
 #                          word; a clash on the same words stops for a person)
+#   after_pick=CMD         run in the landing worktree after each commit is
+#                          picked (bash -c); what it changes is amended into
+#                          that commit (a release stamp that counts commits)
 #   after=just live        what to run once GitHub has deployed the push
 #
 # Before anything else it pulls its own flarepress checkout, when that is clean
@@ -65,8 +68,10 @@ here=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
 # shares it). Main's files are synced there, and the landing worktree hangs off it.
 home=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 
-# land.conf: one value by key ('' when absent).
-CONF=$home/land.conf
+# land.conf: one value by key ('' when absent). Read from the checkout it runs
+# in, the code being landed: the main checkout may have another branch out,
+# and its copy once turned telemetry's CI gate off (2026-10-18).
+CONF=$here/land.conf
 conf() { if [ -f "$CONF" ]; then sed -n "s/^$1=//p" "$CONF" | tail -1; fi; }
 if [ -f "$CONF" ]; then
   bad=
@@ -75,7 +80,7 @@ if [ -f "$CONF" ]; then
     k=${line%%=*}
     case "$line" in *=*) ;; *) die "$CONF: not key=value: $line" ;; esac
     case "$k" in ''|*[!a-z_]*) die "$CONF: not key=value (no spaces around =): $line" ;; esac
-    case "$k" in branch|test|ci|ci_workflow|resolve|after) ;; *) bad="$bad $k" ;; esac
+    case "$k" in branch|test|ci|ci_workflow|resolve|after_pick|after) ;; *) bad="$bad $k" ;; esac
   done < "$CONF"
   [ -z "$bad" ] || die "unknown key(s) in $CONF:$bad"
 fi
@@ -97,6 +102,7 @@ for pair in $RESOLVE; do
 done
 set +f
 AFTER=$(conf after)
+AFTER_PICK=$(conf after_pick)
 
 g() { git -C "$home" "$@"; }
 
@@ -199,6 +205,16 @@ stop_here() {
   echo "   then: just land-continue $wt" >&2
 }
 
+# Runs after_pick on the commit just picked and amends what it changed into it.
+# No hooks on the amend: a pre-commit check that counts commits would count it
+# as one more, and the tests run on the whole landing before the push.
+after_pick() {
+  local wt=$1
+  [ -n "$AFTER_PICK" ] || return 0
+  (cd "$wt" && bash -c "$AFTER_PICK") || { echo "🛑 after_pick failed on $(git -C "$wt" log --oneline -1 | cat); $BRANCH unchanged" >&2; return 1; }
+  [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || git -C "$wt" commit -q -a --amend --no-edit --no-verify
+}
+
 # Picks the commits listed in the worktree's state file that are not picked yet.
 # The resolvers read a conflict's base section, which git writes only in the
 # zdiff3 style: a cloud session's git has none set, so it is set here
@@ -222,6 +238,7 @@ pick_rest() {
       done
       GIT_EDITOR=true git -C "$wt" cherry-pick --continue > /dev/null
     fi
+    after_pick "$wt" || return 1
     drop_done "$wt/.land/todo" "$c"
   # A copy: drop_done rewrites the file while the loop reads it, and read
   # straight from it the loop stopped after the first commit.
@@ -301,6 +318,8 @@ case "${1:-}" in
     if [ -n "$(git -C "$wt" diff --name-only --diff-filter=U)" ] || git -C "$wt" rev-parse -q --verify CHERRY_PICK_HEAD > /dev/null; then
       die "finish the cherry-pick in $wt first (git add …; GIT_EDITOR=true git -C $wt cherry-pick --continue)"
     fi
+    # The commit resolved by hand gets its after_pick too.
+    after_pick "$wt" || exit 1
     set +e; pick_rest "$wt"; rc=$?; set -e
     [ $rc -eq 0 ] || exit 1
     finish "$wt"

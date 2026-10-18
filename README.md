@@ -119,13 +119,14 @@ land-continue worktree:
     @just land --continue {{worktree}}
 ```
 
-And a `land.conf` at the app's root (key=value, never run as shell; every key optional):
+And a `land.conf` at the app's root (read from the checkout `just land` runs in) (key=value, never run as shell; every key optional):
 
 ```ini
 test=just test                    # run in the landing worktree before the push
 resolve=TODO.md:todo docs/questions.md:questions docs/*.md:words   # conflicts these resolvers settle
 ci=gate                           # move main only after the CI run on that exact commit passed (needs gh)
 branch=main                       # default: GitHub's default branch
+after_pick=CMD                    # run after each pick; what it changes is amended in (a stamp that counts commits)
 after=just live                   # named in the last line, for once the deploy ran
 ```
 
