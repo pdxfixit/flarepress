@@ -313,16 +313,25 @@ class AfterPick(Land):
 
 
 class BareFlagged(Land):
-    def test_a_main_checkout_flagged_bare_still_lands_and_says_so(self):
-        """2026-10-18: telemetry's main checkout said core.bare=true; the push landed, then git status failed."""
+    """2026-10-18: a test run from a worktree's pre-commit hook re-initialised telemetry's main checkout,
+    flagging it core.bare=true. land.sh then said "not in a git repo" there, and from a worktree it could
+    not sync the checkout. It stops first and says how to restore it."""
+
+    def assert_stops_with_the_restore_command(self, out):
+        self.assertEqual(out.returncode, 1, out.stdout)
+        self.assertIn('flagged bare', out.stderr)
+        self.assertIn(f'git -C {self.repo.resolve()} config core.bare false', out.stderr)
+        self.assertEqual(self.remote_head(), self.start, 'nothing pushed')
+
+    def test_from_the_main_checkout(self):
+        git(self.repo, 'config', 'core.bare', 'true')
+        self.assert_stops_with_the_restore_command(self.land(self.sha))
+
+    def test_from_a_worktree(self):
         wt = self.tmp / 'agent-wt'
         git(self.repo, 'worktree', 'add', '-q', str(wt), 'agent')
-        git(self.repo, 'switch', '-q', '-c', 'elsewhere')
         git(self.repo, 'config', 'core.bare', 'true')
-        out = self.land(cwd=wt)
-        self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn('🚀 pushed', out.stdout)
-        self.assertEqual(git(wt, 'ls-remote', 'origin', 'refs/heads/main').split()[0], git(wt, 'rev-parse', 'main'))
+        self.assert_stops_with_the_restore_command(self.land(cwd=wt))
 
 
 class Master(Land):

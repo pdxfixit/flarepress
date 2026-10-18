@@ -267,7 +267,8 @@ keys. Exit 0, 75 when R2 does not answer, 1 on any other failure. `--events` def
 ## Landing
 
 `tools/land.sh` is every app's `just land` (README: "Land commits on main" has the app's recipe and
-`land.conf`). In order: it pulls its own flarepress checkout when that is clean and on main, then starts
+`land.conf`). In order: it stops when the main checkout is flagged `core.bare=true`, printing the `git config
+core.bare false` that restores it; it pulls its own flarepress checkout when that is clean and on main, then starts
 again on the new copy; fetches the branch and fast-forwards it here, the main checkout's files too (stops when
 diverged, or when the pull would overwrite uncommitted edits; offline it goes on); refuses commits touching a
 file the main checkout holds uncommitted edits in (`--wait` waits up to `LAND_WAIT_SECONDS`, default 3600);

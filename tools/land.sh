@@ -63,10 +63,19 @@ if [ -z "${LAND_SELF_PULLED:-}" ] && [ -z "${LAND_NO_SELF_PULL:-}" ]; then
   fi
 fi
 
-here=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "not in a git repo"
+# A checkout flagged core.bare=true has no work tree to git, so every status
+# and diff fails: it said "not in a git repo" in the checkout and, from a
+# worktree, read as uncommitted edits (2026-10-18, telemetry: a test's git init
+# under a hook's GIT_DIR set it). Stop before anything and say how to restore it.
+if [ "$(basename "$common")" = .git ] && [ "$(git --git-dir="$common" config --bool core.bare 2>/dev/null)" = true ]; then
+  die "$(dirname "$common") is a checkout flagged bare (core.bare=true), so git cannot see its files; nothing landed. Restore it, then land again:
+   git -C $(dirname "$common") config core.bare false"
+fi
+here=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo's work tree"
 # The main checkout: the folder that holds the repo's .git (an agent's worktree
 # shares it). Main's files are synced there, and the landing worktree hangs off it.
-home=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
+home=$(dirname "$common")
 
 # land.conf: one value by key ('' when absent). Read from the checkout it runs
 # in, the code being landed: the main checkout may have another branch out,
@@ -110,11 +119,18 @@ g() { git -C "$home" "$@"; }
 home_on_branch() { [ "$(g symbolic-ref -q --short HEAD 2>/dev/null)" = "$BRANCH" ]; }
 
 # The files among $@ with uncommitted edits in the main checkout, one a line.
+# Returns 1 when git cannot tell: a failed read is not an edit.
 held() {
-  local f
+  local f rc
   home_on_branch || return 0
   for f in "$@"; do
-    if [ -e "$home/$f" ] && ! g diff --quiet HEAD -- "$f"; then echo "$f"; fi
+    [ -e "$home/$f" ] || continue
+    rc=0; g diff --quiet HEAD -- "$f" || rc=$?
+    case $rc in
+      0) ;;
+      1) echo "$f" ;;
+      *) echo "🛑 git cannot read $home/$f (git diff exit $rc); nothing landed" >&2; return 1 ;;
+    esac
   done
 }
 
@@ -122,7 +138,9 @@ held() {
 wait_free() {
   local limit=${LAND_WAIT_SECONDS:-3600} poll=${LAND_WAIT_POLL:-10} start now busy last=
   start=$(date +%s)
-  while busy=$(held "$@"); [ -n "$busy" ]; do
+  while :; do
+    busy=$(held "$@") || return 1
+    [ -n "$busy" ] || break
     # shellcheck disable=SC2086,SC2116 # echo joins the lines into one
     if [ "$busy" != "$last" ]; then echo "⏳ waiting for uncommitted edits here: $(echo $busy)"; last=$busy; fi
     now=$(date +%s)
@@ -360,7 +378,7 @@ case "${1:-}" in
     if [ $wait -eq 1 ]; then
       wait_free $touched || exit 1
     else
-      busy=$(held $touched)
+      busy=$(held $touched) || exit 1
       # shellcheck disable=SC2086,SC2116
       [ -z "$busy" ] || die "uncommitted edits in $home in: $(echo $busy); nothing landed (just land --wait waits for them)"
     fi
