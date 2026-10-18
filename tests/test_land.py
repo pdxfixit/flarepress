@@ -13,6 +13,11 @@ import time
 import unittest
 from pathlib import Path
 
+# Run from a git hook, git hands down GIT_DIR and friends, and every git call
+# below would then act on the real repo, not the throwaway ones.
+for _name in [n for n in os.environ if n.startswith('GIT_')]:
+    del os.environ[_name]
+
 ROOT = Path(__file__).resolve().parent.parent
 LAND = ROOT / 'tools' / 'land.sh'
 CONFIG = (('user.name', 'Test'), ('user.email', 'test@example.com'), ('commit.gpgsign', 'false'))
@@ -305,6 +310,19 @@ class AfterPick(Land):
         self.assertEqual(git(self.repo, 'show', f'{self.branch}~1:count.txt'), '3')
         self.assertEqual(git(self.repo, 'show', f'{self.branch}:count.txt'), '4')
         self.assertEqual(self.remote_head(), git(self.repo, 'rev-parse', self.branch))
+
+
+class BareFlagged(Land):
+    def test_a_main_checkout_flagged_bare_still_lands_and_says_so(self):
+        """2026-10-18: telemetry's main checkout said core.bare=true; the push landed, then git status failed."""
+        wt = self.tmp / 'agent-wt'
+        git(self.repo, 'worktree', 'add', '-q', str(wt), 'agent')
+        git(self.repo, 'switch', '-q', '-c', 'elsewhere')
+        git(self.repo, 'config', 'core.bare', 'true')
+        out = self.land(cwd=wt)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn('🚀 pushed', out.stdout)
+        self.assertEqual(git(wt, 'ls-remote', 'origin', 'refs/heads/main').split()[0], git(wt, 'rev-parse', 'main'))
 
 
 class Master(Land):

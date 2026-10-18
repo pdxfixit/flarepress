@@ -305,7 +305,9 @@ finish() {
     done
   fi
   git worktree remove --force "$wt"
-  g status --short
+  # Only a summary: the landing is done, so a main checkout git cannot read
+  # (one flagged core.bare, 2026-10-18) must not turn it into a failure.
+  g status --short 2>/dev/null || true
   g log --oneline "$old..$BRANCH" | cat
   echo "🚀 pushed to $BRANCH: GitHub deploys it; read that run (gh run list --limit 3)${AFTER:+, then $AFTER}"
 }
