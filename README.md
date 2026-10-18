@@ -93,6 +93,42 @@ A `<site>` is a path to a folder with a `wrangler.toml`, or a name under `$FLARE
 (default `~/.config/flarepress/sites`). Auth is `CLOUDFLARE_API_TOKEN`, else the macOS Keychain
 item `cloudflare-www-deploy`, else wrangler's own login.
 
+## Land commits on main
+
+`tools/land.sh` lands an app's commits on its main branch the same way in every repo: it pulls main from
+GitHub first (fast-forward only; it stops when main here has diverged, or when a pull would overwrite
+uncommitted edits), cherry-picks the commits in a throwaway worktree, resolves the list files the app names,
+runs the app's tests, pushes, then moves main and syncs the main checkout's files. GitHub deploys the push.
+With no commits named, it lands the current branch's commits that main lacks. The app runs it from a
+flarepress checkout beside its own (or `$FLAREPRESS`, else a clone in `~/.cache/flarepress`), and the tool
+pulls that checkout first, so every app lands with the current copy. In the app's `justfile`:
+
+```just
+# 🛬 Land commits on main with flarepress's shared tool: just land [--wait] [<sha>…] (no sha: this branch's)
+[positional-arguments]
+land *args:
+    #!/usr/bin/env bash
+    set -eu
+    fp=${FLAREPRESS:-$(cd "$(git rev-parse --git-common-dir)/../.." && pwd)/flarepress}
+    [ -e "$fp/tools/land.sh" ] || fp=${XDG_CACHE_HOME:-$HOME/.cache}/flarepress
+    [ -e "$fp/tools/land.sh" ] || git clone -q https://github.com/pdxfixit/flarepress "$fp"
+    exec bash "$fp/tools/land.sh" "$@"
+
+# 🛬 Finish a landing that stopped on a conflict, once it is resolved in its worktree
+land-continue worktree:
+    @just land --continue {{worktree}}
+```
+
+And a `land.conf` at the app's root (key=value, never run as shell; every key optional):
+
+```ini
+test=just test                    # run in the landing worktree before the push
+resolve=TODO.md:todo docs/questions.md:questions   # conflicts these resolvers settle
+ci=gate                           # move main only after the CI run on that exact commit passed (needs gh)
+branch=main                       # default: GitHub's default branch
+after=just live                   # named in the last line, for once the deploy ran
+```
+
 ## Reference
 
 [AGENTS.md](AGENTS.md) is the full reference: every recipe, every `site.conf` and `harvest.conf`

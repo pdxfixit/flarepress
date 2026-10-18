@@ -205,7 +205,7 @@ rollback site *flags:
 
 # 🧪 The tools' tests, against a local server; nothing reaches Cloudflare
 test:
-    bash -n tools/site.sh && bash -n tools/wrangler.sh && bash -n tools/release.sh
+    bash -n tools/site.sh && bash -n tools/wrangler.sh && bash -n tools/release.sh && bash -n tools/land.sh
     bash tests/site_test.sh
     bash tests/new_test.sh
     bash tests/link_test.sh
@@ -232,3 +232,12 @@ harvest *domains:
 release bump="patch":
     gh workflow run release.yml --repo pdxfixit/flarepress --ref main -f bump={{bump}}
     @echo "Started: https://github.com/pdxfixit/flarepress/actions/workflows/release.yml"
+
+# 🛬 Land commits on a repo's main: pull it from GitHub, cherry-pick, test, push (tools/land.sh, the repo's land.conf). From the repo or a worktree of it: just land [--wait] [<sha>…]
+[positional-arguments]
+land *args:
+    @cd "{{here}}" && bash "{{tools}}/land.sh" "$@"
+
+# 🛬 Finish a landing that stopped on a conflict, once it is resolved in its worktree: just land-continue <worktree>
+land-continue worktree:
+    @cd "{{here}}" && bash "{{tools}}/land.sh" --continue "{{worktree}}"

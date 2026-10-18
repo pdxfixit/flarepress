@@ -54,6 +54,8 @@ a Mac the app's recipes export them from its config file.
   an app, or check its copies ("Telemetry events", below).
 - `just release [minor]`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it;
   `minor` for something new a caller can use, the default `patch` for fixes).
+- `just land [--wait] [<sha>…]` / `just land-continue <worktree>`: land commits on a repo's main, from that repo
+  or a worktree of it ("Landing", below). Apps call `tools/land.sh` from their own `just land`.
 - `just test`: the tools' tests against a local server. Nothing reaches Cloudflare. GitHub
   runs it on every branch push and pull request, on Linux and on macOS (`/bin/bash` 3.2, the
   system `python3`), with shellcheck (`.github/workflows/test.yml`).
@@ -261,6 +263,22 @@ its good lines, goes under `raw/rejected/` and stays in the bucket for good. An 
 `events.toml` lacks is stored, counted and named in the output. `ack` deletes exactly the manifest's `delete`
 keys. Exit 0, 75 when R2 does not answer, 1 on any other failure. `--events` defaults to
 `../telemetry/events.toml` beside this repo. The R2 token: Object Read & Write, that bucket only.
+
+## Landing
+
+`tools/land.sh` is every app's `just land` (README: "Land commits on main" has the app's recipe and
+`land.conf`). In order: it pulls its own flarepress checkout when that is clean and on main, then starts
+again on the new copy; fetches the branch and fast-forwards it here, the main checkout's files too (stops when
+diverged, or when the pull would overwrite uncommitted edits; offline it goes on); refuses commits touching a
+file the main checkout holds uncommitted edits in (`--wait` waits up to `LAND_WAIT_SECONDS`, default 3600);
+cherry-picks them in `.worktrees/land-*` (git's `info/exclude` ignores it), settling conflicts in the files
+`resolve=` names with `tools/resolve_todo.py` or `tools/resolve_questions.py` and stopping on any other, with
+the worktree kept for `--continue`; pulls again and rebases the picked commits when the branch moved meanwhile;
+runs `test=`; with `ci=gate` pushes `land/<sha>` and waits for the `ci_workflow` run (`LAND_TIMEOUT`, default
+900 s); pushes; only then moves the branch here and syncs the touched files (deletions too). A refused push
+leaves the main checkout as it was. `tests/test_land.py` covers each step in throwaway repos.
+
+Landing this repo: `just land` from a worktree (its `land.conf` runs `just test`).
 
 ## Rules for this repo
 
