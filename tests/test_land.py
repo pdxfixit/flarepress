@@ -39,7 +39,7 @@ class Land(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         # The tool as an app finds it: a flarepress folder (not a git checkout here, so it never pulls itself).
         (self.tmp / 'fp' / 'tools').mkdir(parents=True)
-        for name in ('land.sh', 'resolve_todo.py', 'resolve_questions.py'):
+        for name in ('land.sh', 'resolve_todo.py', 'resolve_questions.py', 'resolve_words.py'):
             shutil.copy(ROOT / 'tools' / name, self.tmp / 'fp' / 'tools' / name)
         self.origin = self.tmp / 'origin.git'
         subprocess.run(['git', 'init', '-q', '--bare', '-b', self.branch, str(self.origin)], check=True)
@@ -212,7 +212,32 @@ class BranchMode(Land):
 
 
 class Conflicts(Land):
-    conf = 'test=true\nresolve=TODO.md:todo\n'
+    conf = 'test=true\nresolve=TODO.md:todo docs/*.md:words\n'
+
+    def test_a_long_line_in_a_glob_named_file_merges_word_by_word(self):
+        self.push_elsewhere('docs/guide.md', 'One two three. Four five six.\n', 'seed guide')
+        git(self.repo, 'pull', '-q', '--ff-only')
+        git(self.repo, 'switch', '-q', 'agent')
+        git(self.repo, 'rebase', '-q', self.branch)
+        mine = commit(self.repo, 'docs/guide.md', 'One two three. Four FIVE six.\n', 'agent: five')
+        git(self.repo, 'switch', '-q', self.branch)
+        self.push_elsewhere('docs/guide.md', 'One TWO three. Four five six.\n', 'main: two')
+        out = self.land(mine)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual((self.repo / 'docs/guide.md').read_text(), 'One TWO three. Four FIVE six.\n')
+
+    def test_a_clash_on_the_same_words_stops_for_a_person(self):
+        self.push_elsewhere('docs/guide.md', 'One two three.\n', 'seed guide')
+        git(self.repo, 'pull', '-q', '--ff-only')
+        git(self.repo, 'switch', '-q', 'agent')
+        git(self.repo, 'rebase', '-q', self.branch)
+        mine = commit(self.repo, 'docs/guide.md', 'One deux three.\n', 'agent: deux')
+        git(self.repo, 'switch', '-q', self.branch)
+        self.push_elsewhere('docs/guide.md', 'One dos three.\n', 'main: dos')
+        out = self.land(mine)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn('conflicts in: docs/guide.md', out.stderr)
+        self.assertTrue(any(Path(self.repo, '.worktrees').iterdir()), 'the worktree is kept for --continue')
 
     def test_a_list_file_named_in_land_conf_is_resolved(self):
         git(self.repo, 'switch', '-q', 'agent')
@@ -325,6 +350,7 @@ class Script(unittest.TestCase):
     def test_it_cherry_picks_in_the_zdiff3_style_and_stops_when_a_resolver_fails(self):
         self.assertIn('-c merge.conflictStyle=zdiff3 cherry-pick', self.script)
         self.assertRegex(self.script, r'resolve_\$kind\.py" "\$wt/\$f" \|\| return 1')
+        self.assertRegex(self.script, r'if python3 "\$FP/tools/resolve_words\.py" "\$wt/\$f"; then git -C "\$wt" add "\$f"; else stop_here')
 
     def test_drop_done_removes_the_picked_commits(self):
         self.assertEqual(self.run_drop_done('aaa111\nbbb222\nccc333\n', 'bbb222'), 'ccc333\n')

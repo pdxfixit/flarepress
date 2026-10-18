@@ -32,9 +32,11 @@
 #   ci=gate                push to land/<sha> first and move main only once the
 #                          ci_workflow run on that exact commit passed (default none)
 #   ci_workflow=test.yml   the workflow ci=gate waits for
-#   resolve=TODO.md:todo docs/questions.md:questions
-#                          conflicts in these files are resolved by
-#                          tools/resolve_<kind>.py (todo or questions)
+#   resolve=TODO.md:todo docs/questions.md:questions docs/*.md:words
+#                          conflicts in these files (a path or a glob, first
+#                          match wins) are resolved by tools/resolve_<kind>.py:
+#                          todo, questions, or words (long lines merged word by
+#                          word; a clash on the same words stops for a person)
 #   after=just live        what to run once GitHub has deployed the push
 #
 # Before anything else it pulls its own flarepress checkout, when that is clean
@@ -88,9 +90,12 @@ CI=$(conf ci); CI=${CI:-none}
 case "$CI" in none|gate) ;; *) die "$CONF: ci=$CI, want none or gate" ;; esac
 CI_WORKFLOW=$(conf ci_workflow); CI_WORKFLOW=${CI_WORKFLOW:-test.yml}
 RESOLVE=$(conf resolve)
+# set -f: a glob in resolve= is matched against conflicted paths, never expanded here.
+set -f
 for pair in $RESOLVE; do
-  case "${pair##*:}" in todo|questions) ;; *) die "$CONF: resolve=$pair, want <path>:todo or <path>:questions" ;; esac
+  case "${pair##*:}" in todo|questions|words) ;; *) die "$CONF: resolve=$pair, want <path>:todo, :questions or :words" ;; esac
 done
+set +f
 AFTER=$(conf after)
 
 g() { git -C "$home" "$@"; }
@@ -171,12 +176,27 @@ exclude() {
   grep -qxF "$1" "$file" 2>/dev/null || echo "$1" >> "$file"
 }
 
-# The resolver kind land.conf names for path $1 ('' when none).
+# The resolver kind land.conf names for path $1 ('' when none): the first
+# pattern that matches it.
 kind_for() {
-  local pair
+  local pair kind=
+  set -f
   for pair in $RESOLVE; do
-    if [ "${pair%:*}" = "$1" ]; then echo "${pair##*:}"; return; fi
+    # shellcheck disable=SC2254 # the pattern is meant to match as a glob
+    case "$1" in ${pair%:*}) kind=${pair##*:}; break ;; esac
   done
+  set +f
+  echo "$kind"
+}
+
+# Keeps the worktree and what is left to pick, for --continue.
+stop_here() {
+  local wt=$1 c=$2 left=$3
+  drop_done "$wt/.land/todo" "$c"
+  # shellcheck disable=SC2086,SC2116
+  echo "🛑 $c conflicts in: $(echo $left) ($BRANCH unchanged)" >&2
+  echo "   Resolve it in $wt (git -C $wt add …; GIT_EDITOR=true git -C $wt cherry-pick --continue)," >&2
+  echo "   then: just land-continue $wt" >&2
 }
 
 # Picks the commits listed in the worktree's state file that are not picked yet.
@@ -193,18 +213,12 @@ pick_rest() {
       [ -n "$left" ] || { echo "🛑 $c does not apply (empty, or already on $BRANCH?)" >&2; return 1; }
       for f in $left; do
         kind=$(kind_for "$f")
-        if [ -n "$kind" ]; then
-          python3 "$FP/tools/resolve_$kind.py" "$wt/$f" || return 1
-          git -C "$wt" add "$f"
-        else
-          # Keep the worktree and what is left to pick, for --continue.
-          drop_done "$wt/.land/todo" "$c"
-          # shellcheck disable=SC2086,SC2116
-          echo "🛑 $c conflicts in: $(echo $left) ($BRANCH unchanged)" >&2
-          echo "   Resolve it in $wt (git -C $wt add …; GIT_EDITOR=true git -C $wt cherry-pick --continue)," >&2
-          echo "   then: just land-continue $wt" >&2
-          return 2
-        fi
+        case "$kind" in
+          '') stop_here "$wt" "$c" "$left"; return 2 ;;
+          # A clash on the same words is a person's to settle, not an error.
+          words) if python3 "$FP/tools/resolve_words.py" "$wt/$f"; then git -C "$wt" add "$f"; else stop_here "$wt" "$c" "$left"; return 2; fi ;;
+          *) python3 "$FP/tools/resolve_$kind.py" "$wt/$f" || return 1; git -C "$wt" add "$f" ;;
+        esac
       done
       GIT_EDITOR=true git -C "$wt" cherry-pick --continue > /dev/null
     fi

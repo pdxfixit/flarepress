@@ -123,7 +123,7 @@ And a `land.conf` at the app's root (key=value, never run as shell; every key op
 
 ```ini
 test=just test                    # run in the landing worktree before the push
-resolve=TODO.md:todo docs/questions.md:questions   # conflicts these resolvers settle
+resolve=TODO.md:todo docs/questions.md:questions docs/*.md:words   # conflicts these resolvers settle
 ci=gate                           # move main only after the CI run on that exact commit passed (needs gh)
 branch=main                       # default: GitHub's default branch
 after=just live                   # named in the last line, for once the deploy ran
