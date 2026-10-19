@@ -205,6 +205,19 @@ if (url.pathname === "/api/events") {
 header must equal the Worker secret of that name, for a native app, which sends no `Origin`). A site whose
 `Referrer-Policy` is `no-referrer` sends `Origin: null` and is refused: keep `strict-origin-when-cross-origin`.
 
+**The feedback box: `handleFeedback`** (same file, vendored with it) takes what a person types into an app's
+Feedback dialog: `POST /api/feedback`, `text/plain`, 1 to 4096 bytes, `X-Feedback` (a UUID per message) and
+`X-App-Version`. It writes `v1/<app>/<UTC day>/<version>-<id>.txt` to the one bucket every app's feedback shares
+(`app-suggestions`); the telemetry runner's pull copies each to the owner's notes and deletes it. `opts`: `bucket`,
+`app` (the prefix), `origins` (the site only: no key opens it), `limiter` (a rate-limit binding, keyed by the app's
+name, never the sender's address). 204 stored; 400, 403, 405, 413, 415, 429, 503 as for events.
+
+```js
+if (url.pathname === "/api/feedback") {
+  return handleFeedback(request, env, { bucket: "FEEDBACK", app: "example", origins: [ORIGIN], limiter: "FEEDBACK_LIMITER" });
+}
+```
+
 **The R2 binding** in the app's `site/wrangler.toml` (the bucket is made once, by the owner):
 
 ```toml

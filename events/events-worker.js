@@ -1,6 +1,7 @@
-// flarepress events: the Worker side of the shared telemetry wire format (POST /api/events).
+// flarepress events: the Worker side of the shared telemetry wire format (POST /api/events), and the feedback box
+// (POST /api/feedback, handleFeedback below).
 //
-// One function, handleEvents(request, env, opts), that an app's own Worker calls for POST /api/events. It checks the
+// handleEvents(request, env, opts) is what an app's own Worker calls for POST /api/events. It checks the
 // request and writes the body to R2 as it came, under v1/<UTC day>/<batch>.jsonl, then answers 204. It never parses
 // the body (the free plan allows 10 ms of CPU a request), never reads or stores the IP address, and logs nothing.
 // The telemetry runner's job (tools/events_job.py) reads the bucket, checks each line and deletes what it stored.
@@ -67,8 +68,8 @@ export function objectKey(now, batch) {
   return `v1/${now.toISOString().slice(0, 10)}/${batch}.jsonl`;
 }
 
-// Reads at most MAX_BYTES of the body; null when it is longer, whatever Content-Length said.
-async function readCapped(body) {
+// Reads at most max bytes of the body; null when it is longer, whatever Content-Length said.
+async function readCapped(body, max = MAX_BYTES) {
   if (!body) return new Uint8Array(0);
   const reader = body.getReader();
   const parts = [];
@@ -77,7 +78,7 @@ async function readCapped(body) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_BYTES) {
+    if (size > max) {
       await reader.cancel();
       return null;
     }
@@ -113,6 +114,76 @@ export async function handleEvents(request, env, opts = {}) {
   try {
     await bucket.put(objectKey(opts.now ?? new Date(), batch), body, {
       httpMetadata: { contentType: "application/x-ndjson" },
+    });
+  } catch {
+    return reply(503);
+  }
+  return reply(204);
+}
+
+// ---- Feedback: POST /api/feedback ----
+//
+// handleFeedback(request, env, opts): what a person types into an app's Feedback dialog, sent as plain text. It checks
+// the request the same way as handleEvents and writes the body as it came to the one bucket every app's feedback
+// shares, under the app's own prefix: v1/<app>/<UTC day>/<version>-<id>.txt. The telemetry runner's daily pull copies
+// each one to the owner's notes and deletes it from the bucket. It never parses the body, never reads or stores the IP
+// address, and logs nothing.
+//
+//   if (url.pathname === "/api/feedback") {
+//     return handleFeedback(request, env, { bucket: "FEEDBACK", app: "isopix", origins: [ORIGIN], limiter: "FEEDBACK_LIMITER" });
+//   }
+//
+// opts:
+//   bucket   the R2 binding's name (required), bound to the shared feedback bucket
+//   app      the app's name, the object's prefix (required): lower-case letters, digits and _, starting with a letter
+//   origins  the site's own origin, exactly, as for handleEvents (feedback comes only from the site's own page)
+//   limiter  optional: a rate-limit binding's name. It counts every request to the app's box together (its key is the
+//            app's name, never the sender's address), so a flood is cut off without reading who sent it.
+//   now      a Date, for tests
+//
+// Headers: X-Feedback (a UUID the page makes once per message; a retry reuses it and overwrites), X-App-Version (the
+// app's version, 1-32 of A-Z a-z 0-9 . + _). Body: text/plain, UTF-8, 1 to 4096 bytes.
+// Answers: 204 stored; 400 bad headers or an empty body; 403 origin refused; 405 not POST; 413 too big; 415 not
+// text/plain; 429 over the rate limit; 503 R2 failed or the binding is missing.
+
+export const MAX_FEEDBACK = 4096;
+const APP = /^[a-z][a-z0-9_]*$/;
+const VERSION = /^[0-9A-Za-z.+_]{1,32}$/;
+
+// The object's name, the one the telemetry runner reads (telemetry.py SUGGEST_KEY).
+export function feedbackKey(now, app, version, id) {
+  return `v1/${app}/${now.toISOString().slice(0, 10)}/${version}-${id}.txt`;
+}
+
+export async function handleFeedback(request, env, opts = {}) {
+  if (request.method !== "POST") return reply(405, { allow: "POST" });
+  const { app = "" } = opts;
+  const bucket = env[opts.bucket];
+  if (!bucket || !APP.test(app)) return reply(503); // misconfigured: say so without crashing
+  if (!allowed(request, env, { origins: opts.origins })) return reply(403);
+
+  const limiter = opts.limiter && env[opts.limiter];
+  if (limiter) {
+    const { success } = await limiter.limit({ key: app });
+    if (!success) return reply(429);
+  }
+
+  const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "text/plain") return reply(415);
+  const declared = request.headers.get("content-length");
+  if (declared !== null && Number(declared) > MAX_FEEDBACK) return reply(413);
+
+  const id = (request.headers.get("x-feedback") ?? "").toLowerCase();
+  const version = request.headers.get("x-app-version") ?? "";
+  if (!UUID.test(id) || !VERSION.test(version)) return reply(400);
+
+  const body = await readCapped(request.body, MAX_FEEDBACK);
+  if (body === null) return reply(413);
+  if (body.byteLength === 0) return reply(400);
+
+  try {
+    await bucket.put(feedbackKey(opts.now ?? new Date(), app, version, id), body, {
+      httpMetadata: { contentType: "text/plain; charset=utf-8" },
     });
   } catch {
     return reply(503);
