@@ -23,6 +23,8 @@
 #   compare_wait  seconds to wait for those files (edge propagation), default 90
 #   version_wait  seconds to wait for version.json, default 90
 #   rollback      redeploy (a throwaway checkout of an old commit) or revert (print the steps only)
+#   release       an app-repo file holding the app's release, its first quoted X.Y.Z; the
+#                 version is then v<release>-<short commit> instead of git describe
 # Only `rollback --yes` changes the live site, through the Justfile's push, which
 # accepts a path. DEPLOY_URL points the live checks at another server (tests).
 # verify and live check through Cloudflare's resolver when this machine cannot
@@ -44,7 +46,7 @@ else case "$DOMAIN" in
 esac; fi
 [ -f "$DIR/wrangler.toml" ] || die "no $DIR/wrangler.toml"
 
-KEYS=" url committed pwa compare compare_wait version_wait rollback "
+KEYS=" url committed pwa compare compare_wait version_wait rollback release "
 conf() { [ -f "$DIR/site.conf" ] && sed -n "s/^$1=//p" "$DIR/site.conf" | tail -1 || true; }
 # An app site needs site.conf, and a mistyped key or value is an error, not a
 # silent default (rollback=revrt once meant redeploy, the mode revert refuses).
@@ -62,6 +64,7 @@ conf_check() {
   [ -z "$bad" ] || die "unknown key(s) in $DIR/site.conf:$bad"
   case "$(conf pwa)" in ''|0|1) ;; *) die "$DIR/site.conf: pwa=$(conf pwa), want 0 or 1" ;; esac
   case "$(conf rollback)" in ''|redeploy|revert) ;; *) die "$DIR/site.conf: rollback=$(conf rollback), want redeploy or revert" ;; esac
+  case "$(conf release)" in /*|..|../*|*/../*|*/..) die "$DIR/site.conf: release=$(conf release), want a path inside the app repo" ;; esac
   for k in compare_wait version_wait; do
     case "$(conf "$k")" in *[!0-9]*) die "$DIR/site.conf: $k=$(conf "$k"), want whole seconds" ;; esac
   done
@@ -82,11 +85,26 @@ g() { git -C "$REPO" "$@"; }
 need_repo() { [ -n "$REPO" ] || die "$DIR's assets folder ($ASSETS) is not in a git repo"; }
 secs() { local v; v=$(conf "$1"); echo "${v:-$2}"; }
 
-# The version the site shows: git describe, plus -dirty when a committed path has
+# The label of the commit checked out at $1: v<release>-<short commit> when
+# site.conf names a release file, else git describe (archive/ and backup/ tags are
+# bookkeeping, never a version). A release file with no quoted X.Y.Z is an error,
+# never an empty or made-up release.
+label() {
+  local dir=$1 rel r
+  rel=$(conf release)
+  if [ -z "$rel" ]; then git -C "$dir" describe --tags --always --exclude 'archive/*' --exclude 'backup/*'; return; fi
+  r=$(grep -oE "['\"][0-9]+\.[0-9]+\.[0-9]+['\"]" "$dir/$rel" 2>/dev/null | head -1 | tr -d "'\"") || true
+  [ -n "$r" ] || die "release=$rel: no quoted X.Y.Z release in $dir/$rel"
+  echo "v$r-$(git -C "$dir" rev-parse --short HEAD)"
+}
+
+# The version the site shows: label, plus -dirty when a committed path has
 # uncommitted edits. stamp writes it and verify reads the stamp back, so the two
-# can never disagree (archive/ and backup/ tags are bookkeeping, never a version).
+# can never disagree.
 version() {
-  local v; v=$(g describe --tags --always --exclude 'archive/*' --exclude 'backup/*')
+  # || exit: set -e is off inside $(…) (bash 3.2 has no inherit_errexit), and
+  # version itself runs inside one.
+  local v; v=$(label "$REPO") || exit 1
   # shellcheck disable=SC2086  # COMMITTED is a space-separated list of paths
   [ -z "$(g status --porcelain -- $COMMITTED)" ] || v="$v-dirty"
   echo "$v"
@@ -177,7 +195,8 @@ cmd_check() {
     [ "$(g rev-list --count "$upstream..HEAD")" = 0 ] || die "HEAD is ahead of $upstream: push first, then deploy"
     echo "✅ HEAD is pushed ($upstream)"
   fi
-  echo "📦 would ship $(version)  (commit $(g rev-parse --short HEAD))"
+  local v; v=$(version) || exit 1
+  echo "📦 would ship $v  (commit $(g rev-parse --short HEAD))"
 }
 
 # The first publish creates the Custom Domain (a DNS record) and needs the owner's go.
@@ -193,7 +212,9 @@ cmd_stamp() {
   conf_check; need_repo
   local web=${1:-$PUBLIC}
   # commit: the short SHA, for an app that shows which build it runs (Isopix's corner stamp).
-  printf '{"version":"%s","commit":"%s","date":"%s"}\n' "$(version)" "$(g rev-parse --short HEAD)" "$(date '+%Y-%m-%d %H:%M %Z')" > "$web/version.json"
+  # Computed first: a failure inside printf's arguments would not stop the script.
+  local v; v=$(version) || exit 1
+  printf '{"version":"%s","commit":"%s","date":"%s"}\n' "$v" "$(g rev-parse --short HEAD)" "$(date '+%Y-%m-%d %H:%M %Z')" > "$web/version.json"
   cat "$web/version.json"
 }
 
@@ -254,7 +275,8 @@ cmd_live() {
   done
   got=$(live_version)
   [ -n "$got" ] || { echo "⚠️ no live version (not published yet, or no version.json)"; return 0; }
-  sha=${got%-dirty}; sha=${sha##*-g}
+  sha=${got%-dirty}
+  if [ -n "$(conf release)" ]; then sha=${sha##*-}; else sha=${sha##*-g}; fi
   # shellcheck disable=SC2086
   if g cat-file -e "$sha^{commit}" 2>/dev/null && g diff --quiet "$sha" main -- $COMMITTED; then
     echo "✅ live $got serves main's $COMMITTED"
@@ -312,8 +334,8 @@ STEPS
   [ -f "$wt/$SITE_REL/wrangler.toml" ] || die "$sha has no $SITE_REL/wrangler.toml: it predates the site folder in this repo"
   rel=${PUBLIC#"$REPO"/}
   [ -d "$wt/$rel" ] || die "$sha has no $rel/ folder"
-  v=$(git -C "$wt" describe --tags --always --exclude 'archive/*' --exclude 'backup/*')
-  printf '{"version":"%s","date":"%s"}\n' "$v" "$(date '+%Y-%m-%d %H:%M %Z')" > "$wt/$rel/version.json"
+  v=$(label "$wt") || exit 1
+  printf '{"version":"%s","commit":"%s","date":"%s"}\n' "$v" "$(git -C "$wt" rev-parse --short HEAD)" "$(date '+%Y-%m-%d %H:%M %Z')" > "$wt/$rel/version.json"
   "$FP/tools/wrangler.sh" "$wt/$SITE_REL" deploy
   cmd_verify --want "$v" --web "$wt/$rel"
 }

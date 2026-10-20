@@ -158,4 +158,17 @@ cp "$T/wt.bak" "$T/app/site/wrangler.toml"; rm -f "$T/app/site/site.conf.bak"
 conf redeploy
 run rollback && says 'site' && says 'dry: nothing changed' && ok "rollback names the old commit's site folder" || { no "rollback names the old commit's site folder"; cat "$T/out"; }
 
+# 17. release= names the app's release file: the version is v<release>-<short commit>.
+conf; echo 'release=web/version.js' >> "$T/app/site/site.conf"
+cp "$T/app/web/version.json" "$T/stamp.bak"
+run check && no "check refuses release= with no X.Y.Z" || { says 'no quoted X.Y.Z' && ok "check refuses release= with no X.Y.Z" || { no "check refuses release= with no X.Y.Z (wrong reason)"; cat "$T/out"; }; }
+run stamp && no "release= with no X.Y.Z in the file fails" || { says 'no quoted X.Y.Z' && cmp -s "$T/stamp.bak" "$T/app/web/version.json" && ok "release= with no X.Y.Z fails, and leaves version.json as it was" || { no "release= with no X.Y.Z fails (wrong reason, or version.json changed)"; cat "$T/out"; }; }
+echo "self.V = '1.2.3'; // since 0.9.1" > "$T/app/web/version.js"; G add web/version.js; G commit -m four; G push
+run stamp; want="v1.2.3-$(git -C "$T/app" rev-parse --short HEAD)"
+grep -q "\"version\":\"$want\"" "$T/app/web/version.json" && ok "release= stamps $want" || { no "release= stamps v<release>-<short commit>"; cat "$T/app/web/version.json"; }
+run verify && says "live version is $want" && ok "release=: stamp then verify agree" || { no "release=: stamp then verify agree"; cat "$T/out"; }
+run live && says "serves main's" && ok "release=: live finds the commit in the label" || { no "release=: live finds the commit in the label"; cat "$T/out"; }
+conf; echo 'release=../outside.js' >> "$T/app/site/site.conf"
+run check && no "release= outside the repo is refused" || { says 'inside the app repo' && ok "release= outside the repo is refused" || { no "release= outside the repo is refused (wrong reason)"; cat "$T/out"; }; }
+conf
 [ "$fails" = 0 ] && echo "🎉 site.sh: all passed" || { echo "💥 site.sh: $fails failed"; exit 1; }

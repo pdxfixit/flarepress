@@ -82,7 +82,7 @@ check, gate, stamp, deploy and verify in that order.
 |---|---|---|
 | `check [--from DIR]` | on GitHub: the run is for `refs/heads/main` and HEAD is the pushed commit; elsewhere: the main checkout, on `main`, pushed. Both: committed paths clean, `index.html` (and a PWA's manifest and service worker) present | no |
 | `gate` | refuses a first publish (no answer at all) unless `FIRST_PUBLISH=1` | no |
-| `stamp` | writes `version.json` into the assets folder: `git describe`, `-dirty` when a committed path has edits | no (gitignored in the app) |
+| `stamp` | writes `version.json` into the assets folder: the version (`git describe`, or `v<release>-<short commit>` with `release=`), `-dirty` when a committed path has edits, and `commit`, the short commit | no (gitignored in the app) |
 | `verify [--want V] [--web DIR]` | the stamped version is live, `compare` files match byte for byte, 200s, a PWA's worker headers | no |
 | `live` | status, cache headers, the live version and whether it is main's | no |
 | `rollback [--to C] [--yes]` | dry by default; `rollback=redeploy` deploys a throwaway checkout of an old commit from its own site folder (a commit from before the site folder was in the repo cannot be redeployed); `rollback=revert` only prints the revert steps | only with `--yes` |
@@ -90,7 +90,9 @@ check, gate, stamp, deploy and verify in that order.
 `site.conf` is `key=value` (no spaces around `=`), read and never run as shell; an unknown key
 or a value it does not take (`pwa` 0 or 1, `rollback` redeploy or revert, waits in whole seconds) is an error:
 `url`, `committed` (app paths that ship; default the assets folder), `pwa`, `compare`,
-`compare_wait`, `version_wait`, `rollback`. `tools/site.sh` names each in its header.
+`compare_wait`, `version_wait`, `rollback`, `release` (an app-repo file whose first quoted `X.Y.Z` is the app's
+release, so one version string names both: `v1.2.174-dce9c71`; `check` and `stamp` fail when it has none).
+`tools/site.sh` names each in its header.
 
 ## Using the action
 
