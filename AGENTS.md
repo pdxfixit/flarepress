@@ -279,6 +279,22 @@ its good lines, goes under `raw/rejected/` and stays in the bucket for good. An 
 keys. Exit 0, 75 when R2 does not answer, 1 on any other failure. `--events` defaults to
 `../telemetry/events.toml` beside this repo. The R2 token: Object Read & Write, that bucket only.
 
+## CI report
+
+`pdxfixit/flarepress/ci@v1` (`ci/action.yml`, `tools/ci_report.py`) is every job's last step in the owner's repos:
+it sends one `ci.run` record (app `ci`, platform `ci`, form `runner`; the standard's shape) to the telemetry events
+wire, and when the job failed it pushes one message to an ntfy topic. Usage is in `ci/action.yml`'s header.
+
+- **Never fails the job**: every problem is a warning, and the step exits 0. No `CI_EVENTS_KEY` and no `NTFY_TOPIC`
+  (a fork's pull request) sends nothing.
+- **Details**: repo, workflow, job, trigger, ref, sha (7), outcome, duration_ms, failed_step, url. Duration and the
+  failed step come from the API, so a workflow with a `permissions:` block adds `actions: read`; without it they are
+  null.
+- **The push**: title `<repo>: <workflow> failed`, the failed step and the commit, a link to the run. A cancel or a
+  success pushes nothing. The topic is a secret: on a public ntfy server, whoever knows the name can read it.
+- `tools/events_job.py` takes platform `ci` and form `runner`, so the telemetry runner stores these records like
+  any app's. `tests/test_ci_report.py` covers it against a local stand-in.
+
 ## Landing
 
 `tools/land.sh` is every app's `just land` (README: "Land commits on main" has the app's recipe and

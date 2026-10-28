@@ -65,8 +65,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_EVENTS = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'telemetry', 'events.toml')
 
 COLUMNS = ('app', 'platform', 'form', 'version', 'player', 'session', 'seq', 'at', 'tz', 'event', 'screen', 'details')
-PLATFORMS = ('web', 'android')
-FORMS = ('phone', 'tablet', 'watch', 'desktop')
+PLATFORMS = ('web', 'android', 'ci')   # ci: a GitHub Actions job (tools/ci_report.py)
+FORMS = ('phone', 'tablet', 'watch', 'desktop', 'runner')
 MAX_AT = 253402300800000   # 10000-01-01 UTC in ms: past it a time is not a date
 MAX_TEXT = 200             # longest version, session, event or screen name taken
 

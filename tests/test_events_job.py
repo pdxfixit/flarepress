@@ -489,6 +489,15 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(job.check(dict(record(0), at=0, form='car', session=''), 'isopix'), 'bad form, session, at')
         self.assertEqual(job.check(dict(record(0), version='v' * 201), 'isopix'), 'bad version')
 
+    def test_the_check_takes_a_ci_report(self):
+        sys.path.insert(0, os.path.join(ROOT, 'tools'))
+        import ci_report
+        env = {'GITHUB_REPOSITORY': 'o/app', 'GITHUB_RUN_ID': '7', 'GITHUB_WORKFLOW': 'test', 'JOB_STATUS': 'success'}
+        rec = json.loads(json.dumps(ci_report.record(env, None, 1792022400000)))
+        self.assertIsNone(job.check(rec, 'ci', 'ci'))
+        self.assertEqual(job.check(dict(rec, form='phone'), 'ci', 'ci'), None)   # forms are not tied to a platform
+        self.assertEqual(job.check(rec, 'ci', 'web'), 'bad platform')
+
     def test_the_web_worker_and_the_job_agree_on_object_names(self):
         with open(os.path.join(ROOT, 'events', 'events-worker.js')) as f:
             src = f.read()

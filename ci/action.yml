@@ -1,0 +1,57 @@
+# Report a job to the telemetry events wire, and push a failure to a phone (tools/ci_report.py; AGENTS.md "CI report").
+# The job's last step, in every job of every workflow:
+#
+#   - name: Report
+#     if: always()
+#     continue-on-error: true
+#     uses: pdxfixit/flarepress/ci@v1
+#     with:
+#       status: ${{ job.status }}
+#       endpoint: https://telemetry.example.com/ci/v1/events
+#       key: ${{ secrets.CI_EVENTS_KEY }}
+#       ntfy-topic: ${{ secrets.NTFY_TOPIC }}
+#
+# A workflow with a `permissions:` block adds `actions: read`, so the report carries the job's duration and the step
+# that failed. It never fails the job, and with neither secret (a fork's pull request) it sends nothing.
+name: flarepress ci report
+description: Send one ci.run record to the telemetry events wire, and a phone push when the job failed.
+branding:
+  icon: activity
+  color: orange
+inputs:
+  status:
+    description: The job's status, `${{ job.status }}`.
+    required: true
+  endpoint:
+    description: The events URL (the telemetry Worker's ci path).
+    required: false
+    default: ''
+  key:
+    description: Its X-Events-Key, a secret.
+    required: false
+    default: ''
+  ntfy-topic:
+    description: The ntfy topic a failure is pushed to, a secret. Empty pushes nothing.
+    required: false
+    default: ''
+  ntfy-server:
+    description: The ntfy server.
+    required: false
+    default: https://ntfy.sh
+  token:
+    description: Reads the job's start and failed step from the API (needs `actions: read`).
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Report
+      shell: bash
+      env:
+        JOB_STATUS: ${{ inputs.status }}
+        CI_ENDPOINT: ${{ inputs.endpoint }}
+        CI_EVENTS_KEY: ${{ inputs.key }}
+        NTFY_TOPIC: ${{ inputs.ntfy-topic }}
+        NTFY_SERVER: ${{ inputs.ntfy-server }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: 'python3 "$GITHUB_ACTION_PATH/../tools/ci_report.py" || true'
