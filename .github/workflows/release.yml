@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@v7
@@ -47,3 +48,12 @@ jobs:
       #   run: |
       #     tag=$(git describe --tags --exact-match --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD)
       #     gh release view "$tag" > /dev/null 2>&1 || gh release create "$tag" --verify-tag --notes-from-tag --title "flarepress ${tag#v}"
+      - name: Report
+        if: always()
+        continue-on-error: true
+        uses: pdxfixit/flarepress/ci@v1
+        with:
+          status: ${{ job.status }}
+          endpoint: ${{ vars.CI_ENDPOINT }}
+          key: ${{ secrets.CI_EVENTS_KEY }}
+          ntfy-topic: ${{ secrets.NTFY_TOPIC }}

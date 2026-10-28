@@ -7,7 +7,7 @@
 #     uses: pdxfixit/flarepress/ci@v1
 #     with:
 #       status: ${{ job.status }}
-#       endpoint: https://telemetry.example.com/ci/v1/events
+#       endpoint: ${{ vars.CI_ENDPOINT }}   # the events URL, a repo variable
 #       key: ${{ secrets.CI_EVENTS_KEY }}
 #       ntfy-topic: ${{ secrets.NTFY_TOPIC }}
 #

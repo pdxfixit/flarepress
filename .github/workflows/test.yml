@@ -12,6 +12,7 @@ on:
   workflow_call:
 permissions:
   contents: read
+  actions: read
 jobs:
   test:
     strategy:
@@ -49,3 +50,12 @@ jobs:
         run: shellcheck -S warning tools/*.sh tests/*.sh
       - name: just test
         run: just test
+      - name: Report
+        if: always()
+        continue-on-error: true
+        uses: pdxfixit/flarepress/ci@v1
+        with:
+          status: ${{ job.status }}
+          endpoint: ${{ vars.CI_ENDPOINT }}
+          key: ${{ secrets.CI_EVENTS_KEY }}
+          ntfy-topic: ${{ secrets.NTFY_TOPIC }}
