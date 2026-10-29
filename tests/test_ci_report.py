@@ -2,6 +2,7 @@
 import http.server
 import json
 import os
+import re
 import sys
 import threading
 import unittest
@@ -167,6 +168,29 @@ class CiReportTest(unittest.TestCase):
         self.assertEqual(ci_report.ascii_line('café ✅ ok'), 'caf? ? ok')
         self.assertIsNone(ci_report.parse_time('yesterday'))
         self.assertIsNone(ci_report.parse_time(None))
+
+    def test_every_action_manifest_is_valid_yaml(self):
+        # 2026-10-29: an unquoted description holding "actions: read" made ci/action.yml unreadable, and every job that
+        # used it failed at "Set up job". A plain (unquoted) scalar may not hold ": ", and a description holds no
+        # expression. Stdlib only, so the YAML rule is checked by hand; with PyYAML present the files are parsed too.
+        for rel in ('action.yml', os.path.join('ci', 'action.yml')):
+            with open(os.path.join(ROOT, rel)) as f:
+                text = f.read()
+            for n, line in enumerate(text.splitlines(), 1):
+                m = re.match(r'^\s*(?:- )?([A-Za-z0-9_-]+): (.+)$', line)
+                if not m or line.lstrip().startswith('#'):
+                    continue
+                key, value = m.group(1), m.group(2)
+                with self.subTest(file=rel, line=n):
+                    if value[0] not in '\'"|>[{':
+                        self.assertNotIn(': ', value, 'quote this value')
+                    if key == 'description':
+                        self.assertNotIn('${{', value)
+            try:
+                import yaml
+            except ImportError:
+                continue
+            self.assertIsInstance(yaml.safe_load(text), dict, rel)
 
     def test_the_action_runs_this_file_and_never_fails(self):
         with open(os.path.join(ROOT, 'ci', 'action.yml')) as f:
