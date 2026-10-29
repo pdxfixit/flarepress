@@ -19,8 +19,10 @@ concurrency:
 jobs:
   test:
     if: github.ref == 'refs/heads/main'
+    # every permission test.yml asks for: a called workflow asking more than this does not start (2026-10-29)
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/test.yml
   tag:
     needs: test
@@ -51,7 +53,7 @@ jobs:
       - name: Report
         if: always()
         continue-on-error: true
-        uses: pdxfixit/flarepress/ci@v1
+        uses: ./ci   # this checkout's own: a broken v1 must not stop the release that fixes it
         with:
           status: ${{ job.status }}
           endpoint: ${{ vars.CI_ENDPOINT }}

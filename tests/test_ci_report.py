@@ -192,6 +192,27 @@ class CiReportTest(unittest.TestCase):
                 continue
             self.assertIsInstance(yaml.safe_load(text), dict, rel)
 
+    def test_this_repos_own_workflows_can_always_start(self):
+        # 2026-10-29: release.yml called test.yml granting contents only, while test.yml asked for actions too, so the
+        # release did not start; and both used ci@v1, so a broken v1 could block the release that fixes it.
+        wf = os.path.join(ROOT, '.github', 'workflows')
+
+        def perms(block):
+            return set(re.findall(r'^ +([a-z-]+): (?:read|write)', block, re.M))
+
+        with open(os.path.join(wf, 'test.yml')) as f:
+            test = f.read()
+        with open(os.path.join(wf, 'release.yml')) as f:
+            release = f.read()
+        asked = perms(re.search(r'^permissions:\n((?: {2}.*\n)+)', test, re.M).group(1))
+        call = re.search(r'\n  test:\n((?: {4}.*\n)+)', release).group(1)
+        self.assertIn('uses: ./.github/workflows/test.yml', call)
+        granted = perms(re.search(r' {4}permissions:\n((?: {6}.*\n)+)', call).group(1))
+        self.assertLessEqual(asked, granted, 'release.yml must grant test.yml every permission it asks for')
+        for text in (test, release):
+            self.assertNotIn('flarepress/ci@', text)
+            self.assertIn('uses: ./ci', text)
+
     def test_the_action_runs_this_file_and_never_fails(self):
         with open(os.path.join(ROOT, 'ci', 'action.yml')) as f:
             src = f.read()

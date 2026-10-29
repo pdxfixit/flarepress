@@ -53,7 +53,7 @@ jobs:
       - name: Report
         if: always()
         continue-on-error: true
-        uses: pdxfixit/flarepress/ci@v1
+        uses: ./ci   # this checkout's own: a broken v1 must not stop the release that fixes it
         with:
           status: ${{ job.status }}
           endpoint: ${{ vars.CI_ENDPOINT }}
