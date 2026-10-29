@@ -1,10 +1,17 @@
-# Release flarepress: the tests on Linux and macOS (test.yml), then
-# tools/release.sh --push: tag main as the next v1.M.P and move v1 to it.
-# Started by hand or by automation: Actions → release → Run workflow,
-# `just release [minor]`, or the API (workflow_dispatch). Only the tag job
-# can write, and it runs no tests: the code it tags was tested read-only.
+# Release flarepress: tools/release.sh --push tags the next v1.M.P and moves v1 to it.
+# Automatic (owner, 2026-10-29: "Auto after green tests"): each push to main whose
+# test run passed on Linux and macOS is a patch release of exactly that commit,
+# when it changed a file callers use (RELEASE_WHEN=changed). test.yml runs the ci
+# action from its own checkout, so a broken action fails there before v1 moves.
+# By hand for a minor: Actions → release → Run workflow, `just release minor`, or
+# the API (workflow_dispatch), which runs the tests first. Only the tag job can
+# write, and it runs no tests: the code it tags was tested read-only.
 name: release
 on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       bump:
@@ -18,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   test:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     # every permission test.yml asks for: a called workflow asking more than this does not start (2026-10-29)
     permissions:
       contents: read
@@ -26,6 +33,12 @@ jobs:
     uses: ./.github/workflows/test.yml
   tag:
     needs: test
+    # by hand: after its own tests; automatic: after a green test run of a push to main (tag that commit, no other)
+    if: >-
+      always() && (
+        (github.event_name == 'workflow_dispatch' && needs.test.result == 'success') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -35,9 +48,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # every tag, and the commits since the last release
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - name: Tag and move v1
         env:
-          RELEASE_BUMP: ${{ inputs.bump }}
+          RELEASE_BUMP: ${{ inputs.bump || 'patch' }}
+          RELEASE_WHEN: ${{ github.event_name == 'workflow_run' && 'changed' || 'always' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"

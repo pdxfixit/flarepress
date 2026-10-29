@@ -52,8 +52,8 @@ a Mac the app's recipes export them from its config file.
 - `just harvest [domain…]`: telemetry (below).
 - `just events-vendor --client DIR --worker DIR | --standalone DIR [--check]`: copy the telemetry events files into
   an app, or check its copies ("Telemetry events", below).
-- `just release [minor]`: start the release workflow (the tests, then the next `v1.M.P` tag and `v1` moved to it;
-  `minor` for something new a caller can use, the default `patch` for fixes).
+- `just release [minor]`: start the release workflow by hand (the tests, then the next `v1.M.P` tag and `v1` moved
+  to it; `minor` for something new a caller can use). Patches need no hand: a green `main` releases itself.
 - `just land [--wait] [<sha>…]` / `just land-continue <worktree>`: land commits on a repo's main, from that repo
   or a worktree of it ("Landing", below). Apps call `tools/land.sh` from their own `just land`.
 - `just test`: the tools' tests against a local server. Nothing reaches Cloudflare. GitHub
@@ -116,12 +116,16 @@ jobs:
 Run the app's own tests before the action and its live checks after it. **Releases are
 rolling tags** (the owner, 2026-10-15): app repos use `@v1` (and check out `ref: v1`), so
 moving `v1` releases to every site's next deploy, with no commit in the app repos. Moving
-the tag is the release step. **Release with the release workflow** (`.github/workflows/release.yml`):
-Actions → release → Run workflow, `just release [minor]`, or the GitHub API (an agent may start it). It
-runs the tests on Linux and macOS without write access, then, in a job that can write and runs no
-tests, `tools/release.sh --push`: tags `main` as the next `v1.M.P` (`bump`: patch, or minor; the commits
-since the last release in its message) and moves `v1` to it, annotated and on the commit, with
-the repo's own token. `main` already released: it says so and tags nothing. A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
+the tag is the release step. **Patch releases are automatic** (the owner, 2026-10-29: "Auto after green
+tests"): when `test` passes on Linux and macOS for a push to `main`, `.github/workflows/release.yml`
+tags that exact commit as the next `v1.M.P` and moves `v1` to it, if a file callers use changed
+(`action.yml`, `ci/`, `tools/`, `events/`; `RELEASE_WHEN=changed`). `test.yml` runs the ci report from
+its own checkout (`./ci`), so a broken action fails there before `v1` moves, and this repo's own jobs
+never depend on `v1`. A late test run for an older commit never moves `v1` back. **A minor release is by
+hand**: Actions → release → Run workflow, `just release minor`, or the GitHub API (an agent may start
+it); it runs the tests first. Either way, `tools/release.sh --push` runs in a job that can write and runs
+no tests, puts the commits since the last release in the tag's message, and moves `v1` annotated and on
+the commit, with the repo's own token. A commit already released says so and tags nothing. A change that breaks a caller is a new major tag, `v2`, which each app moves to on purpose.
 
 ## Telemetry harvest
 

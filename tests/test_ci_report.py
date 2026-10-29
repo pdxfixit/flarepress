@@ -212,6 +212,14 @@ class CiReportTest(unittest.TestCase):
         for text in (test, release):
             self.assertNotIn('flarepress/ci@', text)
             self.assertIn('uses: ./ci', text)
+        # The automatic release (owner, 2026-10-29): a green test run of a push to main releases exactly that commit,
+        # and only when a file callers use changed.
+        self.assertIn('workflow_run:\n    workflows: [test]\n    types: [completed]\n    branches: [main]\n', release)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", release)
+        self.assertIn("github.event.workflow_run.event == 'push'", release)
+        self.assertIn('ref: ${{ github.event.workflow_run.head_sha || github.ref }}', release)
+        self.assertIn("RELEASE_WHEN: ${{ github.event_name == 'workflow_run' && 'changed' || 'always' }}", release)
+        self.assertRegex(test, r'(?m)^name: test$')
 
     def test_the_action_runs_this_file_and_never_fails(self):
         with open(os.path.join(ROOT, 'ci', 'action.yml')) as f:

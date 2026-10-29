@@ -228,7 +228,7 @@ events-vendor *args:
 harvest *domains:
     python3 tools/harvest.py {{domains}}
 
-# 🚀 Release: GitHub runs the tests, tags main as the next v1.M.P and moves v1 (just release minor: something new; agents start it through the API)
+# 🚀 Release by hand (patches release themselves after green tests on main): GitHub runs the tests, tags main as the next v1.M.P and moves v1; just release minor for something new
 release bump="patch":
     gh workflow run release.yml --repo pdxfixit/flarepress --ref main -f bump={{bump}}
     @echo "Started: https://github.com/pdxfixit/flarepress/actions/workflows/release.yml"

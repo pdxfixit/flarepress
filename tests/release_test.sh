@@ -40,4 +40,17 @@ rel --push && [ "$(remote_tag v1.1.1)" = "$(git -C "$T/r" rev-parse HEAD)" ] && 
 echo five > "$T/r/a"; G commit -am "five"; G push
 (export RELEASE_BUMP=major; rel --push) && no "RELEASE_BUMP=major is refused" || { [ -z "$(git -C "$T/origin.git" tag -l 'v1.1.2' 'v1.2.0' 'v2*')" ] && ok "RELEASE_BUMP=major is refused and tags nothing" || no "RELEASE_BUMP=major tags nothing"; }
 
+# The automatic release (RELEASE_WHEN=changed, after green tests on main): only when a file a caller uses changed, and
+# never backwards when a late test run for an older commit finishes after a newer release.
+(export RELEASE_WHEN=sometimes; rel --push) && no "RELEASE_WHEN=sometimes is refused" || ok "RELEASE_WHEN=sometimes is refused"
+echo docs > "$T/r/README.md"; G add -A; G commit -m "docs: a readme"; G push
+(export RELEASE_WHEN=changed; rel --push) && grep -q 'nothing a caller uses changed since v1.1.1' "$T/out" && [ -z "$(git -C "$T/origin.git" tag -l 'v1.1.2')" ] \
+  && ok "RELEASE_WHEN=changed skips a change no caller uses" || { no "RELEASE_WHEN=changed skips a docs change"; cat "$T/out"; }
+mkdir -p "$T/r/ci"; echo x > "$T/r/ci/action.yml"; G add -A; G commit -m "fix: the ci action"; G push
+(export RELEASE_WHEN=changed; rel --push) && [ "$(remote_tag v1.1.2)" = "$(git -C "$T/r" rev-parse HEAD)" ] \
+  && ok "RELEASE_WHEN=changed releases a change to ci/" || { no "RELEASE_WHEN=changed releases ci/"; cat "$T/out"; }
+G checkout -q HEAD~1
+rel --push && grep -q 'is already in v1.1.2' "$T/out" && [ "$(remote_tag v1)" = "$(remote_tag v1.1.2)" ] \
+  && ok "an older commit than the last release changes nothing, so v1 never moves back" || { no "v1 never moves back"; cat "$T/out"; }
+
 [ "$fails" = 0 ] && echo "🎉 release.sh: all passed" || { echo "💥 release.sh: $fails failed"; exit 1; }
